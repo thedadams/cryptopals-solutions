@@ -1,0 +1,1 @@
+# Solutions to the [Cryptopals Challenges](http://cryptopals.com) written in [Go](https://www.golang.org)
