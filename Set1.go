@@ -29,11 +29,20 @@ func XORTwoHexStrings(hex1, hex2 string) string {
 		fmt.Println("error:", err)
 		return ""
 	}
-	n := len(msg1)
-	for i := 0; i < n; i++ {
-		msg1[i] = msg1[i] ^ msg2[i]
+	dest := xorTwoByteStrings(msg1, msg2)
+	return hex.EncodeToString(dest)
+}
+
+func xorTwoByteStrings(s1, s2 []byte) []byte {
+	if len(s1) != len(s2) {
+		fmt.Println("error: byte arrays must have the same length.")
+		return nil
 	}
-	return hex.EncodeToString(msg1)
+	dest := make([]byte, len(s1))
+	for i := 0; i < len(dest); i++ {
+		dest[i] = s1[i] ^ s2[i]
+	}
+	return dest
 }
 
 func isEnglishChar(a byte) bool {
