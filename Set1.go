@@ -109,3 +109,19 @@ func FindStringThatHasBeenEncrypted(filename string) (string, string, string) {
 	}
 	return encryptedHex, decryptedHex, decryptedString
 }
+
+func RepeatedKeyXOR(Text, Key string) string {
+	ByteText := []byte(Text)
+	ByteKey := []byte(Key)
+	KeyLength := len(ByteKey)
+	ByteDest := make([]byte, 0)
+	for len(ByteText) > 0 {
+		if len(ByteText) < KeyLength {
+			KeyLength = len(ByteText)
+			ByteKey = ByteKey[:KeyLength]
+		}
+		ByteDest = append(ByteDest, xorTwoByteStrings(ByteText[:KeyLength], ByteKey)...)
+		ByteText = ByteText[KeyLength:]
+	}
+	return hex.EncodeToString(ByteDest)
+}

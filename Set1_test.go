@@ -31,3 +31,8 @@ func ExampleFindEncryptedLine() {
 	fmt.Println(FindStringThatHasBeenEncrypted("Set1_4.txt"))
 	// Output: 7b5a4215415d544115415d5015455447414c155c46155f4058455c5b523f 4e6f77207468617420746865207061727479206973206a756d70696e670a Now that the party is jumping
 }
+
+func ExampleRepeatedKeyXOR() {
+	fmt.Println(RepeatedKeyXOR("Burning 'em, if you ain't quick and nimble\nI go crazy when I hear a cymbal", "ICE"))
+	// Output: 0b3637272a2b2e63622c2e69692a23693a2a3c6324202d623d63343c2a26226324272765272a282b2f20430a652e2c652a3124333a653e2b2027630c692b20283165286326302e27282f
+}
