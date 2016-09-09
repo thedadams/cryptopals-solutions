@@ -2,6 +2,8 @@ package crypto
 
 import (
 	"bufio"
+	"crypto/aes"
+	"crypto/cipher"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
@@ -171,4 +173,33 @@ func BreakRepeatingXOR(TextAsBytes []byte) ([]byte, []byte, int) {
 	DecryptedText := RepeatedKeyXOR(TextAsBytes, key)
 
 	return DecryptedText, key, len(key)
+}
+
+func DecryptAESECB(CipherText, key []byte) []byte {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		panic(err)
+	}
+
+	// The IV needs to be unique, but not secure. Therefore it's common to
+	// include it at the beginning of the ciphertext.
+	if len(CipherText) < aes.BlockSize {
+		panic("ciphertext too short")
+	}
+	iv := make([]byte, aes.BlockSize)
+	for i := 0; i < aes.BlockSize; i++ {
+		iv[i] = 0
+	}
+
+	// EBC mode always works in whole blocks.
+	if len(CipherText)%aes.BlockSize != 0 {
+		panic("ciphertext is not a multiple of the block size")
+	}
+
+	for i := 0; i < len(CipherText)/aes.BlockSize; i++ {
+		// CryptBlocks can work in-place if the two arguments are the same.
+		mode := cipher.NewCBCDecrypter(block, iv)
+		mode.CryptBlocks(CipherText[i*aes.BlockSize:(i+1)*aes.BlockSize], CipherText[i*aes.BlockSize:(i+1)*aes.BlockSize])
+	}
+	return CipherText
 }

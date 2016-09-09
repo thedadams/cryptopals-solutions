@@ -1,6 +1,7 @@
 package crypto
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
@@ -64,4 +65,13 @@ func ExampleBreakRepeatingXOR() {
 	_, key, _ := BreakRepeatingXOR(FileTextAsBytes)
 	fmt.Println(string(key))
 	// Output: Terminator X: Bring the noise
+}
+
+func ExampleDecryptAESECB() {
+	FileText, _ := ioutil.ReadFile("Set1_7.txt")
+	ExpectedOutput, _ := ioutil.ReadFile("Set1_7Output.txt")
+	FileTextAsBytes, _ := base64.StdEncoding.DecodeString(string(FileText))
+	PlainText := DecryptAESECB(FileTextAsBytes, []byte("YELLOW SUBMARINE"))
+	fmt.Println(bytes.Compare(PlainText, ExpectedOutput))
+	// Output: 0
 }
