@@ -18,22 +18,7 @@ func HexStringTo64String(hexString string) string {
 	return encoded
 }
 
-func XORTwoHexStrings(hex1, hex2 string) string {
-	msg1, err := hex.DecodeString(hex1)
-	if err != nil {
-		fmt.Println("error:", err)
-		return ""
-	}
-	msg2, err := hex.DecodeString(hex2)
-	if err != nil {
-		fmt.Println("error:", err)
-		return ""
-	}
-	dest := xorTwoByteStrings(msg1, msg2)
-	return hex.EncodeToString(dest)
-}
-
-func xorTwoByteStrings(s1, s2 []byte) []byte {
+func XORTwoByteStrings(s1, s2 []byte) []byte {
 	if len(s1) != len(s2) {
 		fmt.Println("error: byte arrays must have the same length.")
 		return nil
@@ -62,66 +47,128 @@ func countEnglishChars(decoded []byte) int {
 	return count
 }
 
-func DecryptSingleCharXOR(HexString string) (string, int) {
+func DecryptSingleCharXOR(toDecrypt []byte) ([]byte, int, []byte) {
 	maxScore, thisScore := -1, -1
+	keyGuess := []byte(" ")
 	key := []byte(" ")
-	msg, err := hex.DecodeString(HexString)
-	if err != nil {
-		fmt.Println("error:", err)
-		return "", -1
-	}
-	dest := make([]byte, len(msg))
-	decoded := make([]byte, len(msg))
-	for key[0] <= []byte("~")[0] {
-		for i := 0; i < len(msg); i++ {
-			dest[i] = key[0] ^ msg[i]
+	dest := make([]byte, len(toDecrypt))
+	decoded := make([]byte, len(toDecrypt))
+	for keyGuess[0] <= []byte("~")[0] {
+		for i := 0; i < len(toDecrypt); i++ {
+			dest[i] = keyGuess[0] ^ toDecrypt[i]
 		}
 		thisScore = countEnglishChars(dest)
 		if thisScore > maxScore {
 			maxScore = thisScore
 			copy(decoded, dest)
+			copy(key, keyGuess)
 		}
-		key[0]++
+		keyGuess[0]++
 	}
-	return hex.EncodeToString(decoded), maxScore
+	return decoded, maxScore, key
 }
 
-func FindStringThatHasBeenEncrypted(filename string) (string, string, string) {
+func FindStringThatHasBeenEncrypted(filename string) ([]byte, []byte) {
 	maxScore := -1
-	encryptedHex, decryptedHex, decryptedString := "", "", ""
+	var encrypted, decrypted []byte
 	file, err := os.Open(filename)
 	defer file.Close()
 	if err != nil {
 		fmt.Println("You don't have the proper file: " + filename)
-		return "", "", ""
+		return nil, nil
 	}
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
-		line := scanner.Text()
-		decryptedLine, thisScore := DecryptSingleCharXOR(line)
-		decryptedBytes, _ := hex.DecodeString(decryptedLine)
+		line, _ := hex.DecodeString(scanner.Text())
+		decryptedLine, thisScore, _ := DecryptSingleCharXOR(line)
 		if thisScore > maxScore {
 			maxScore = thisScore
-			encryptedHex = line
-			decryptedHex = decryptedLine
-			decryptedString = string(decryptedBytes)
+			encrypted = make([]byte, len(line))
+			decrypted = make([]byte, len(decryptedLine))
+			copy(encrypted, line)
+			copy(decrypted, decryptedLine)
 		}
 	}
-	return encryptedHex, decryptedHex, decryptedString
+	return encrypted, decrypted
 }
 
-func RepeatedKeyXOR(Text, Key string) string {
-	ByteText := []byte(Text)
-	ByteKey := []byte(Key)
-	KeyLength := len(ByteKey)
+func RepeatedKeyXOR(Text, Key []byte) []byte {
+	KeyLength := len(Key)
 	ByteDest := make([]byte, 0)
-	for len(ByteText) > 0 {
-		if len(ByteText) < KeyLength {
-			KeyLength = len(ByteText)
-			ByteKey = ByteKey[:KeyLength]
+	for len(Text) > 0 {
+		if len(Text) < KeyLength {
+			KeyLength = len(Text)
+			Key = Key[:KeyLength]
 		}
-		ByteDest = append(ByteDest, xorTwoByteStrings(ByteText[:KeyLength], ByteKey)...)
-		ByteText = ByteText[KeyLength:]
+		ByteDest = append(ByteDest, XORTwoByteStrings(Text[:KeyLength], Key)...)
+		Text = Text[KeyLength:]
 	}
-	return hex.EncodeToString(ByteDest)
+	return ByteDest
+}
+
+func hasBit(n byte, pos uint) bool {
+	val := n & (1 << pos)
+	return (val > 0)
+}
+
+func HammingDistance(word1, word2 []byte) int {
+	var j uint
+	dist := 0
+	n := len(word1)
+	if len(word2) < n {
+		n = len(word2)
+	}
+	for i := 0; i < n; i++ {
+		for j = 0; j < 8; j++ {
+			xored := word1[i] ^ word2[i]
+			if hasBit(xored, j) {
+				dist++
+			}
+		}
+	}
+	return dist
+}
+
+func GuessKeySize(text []byte) int {
+	MaxGuess := 40
+	if len(text) < 2*MaxGuess {
+		MaxGuess = len(text) / 2
+	}
+	KeySize := 1
+	MinDist := float64(8 * len(text))
+	for k := 1; k <= MaxGuess; k++ {
+		ThisDist := 0.0
+		i := 0
+		for i < len(text)/k {
+			ThisDist += float64(HammingDistance(text[i*k:(i+1)*k], text[(i+1)*k:(i+2)*k]))
+			i++
+		}
+		ThisDist /= (float64(k) * 8.0 * float64(i))
+		if ThisDist < MinDist {
+			MinDist = ThisDist
+			KeySize = k
+		}
+	}
+	return KeySize
+}
+
+func BreakRepeatingXOR(TextAsBytes []byte) ([]byte, []byte, int) {
+	KeySize := GuessKeySize(TextAsBytes)
+	TransposedText := make([][]byte, KeySize)
+	key := make([]byte, 0)
+	for i := 0; i < KeySize; i++ {
+		TransposedText[i] = make([]byte, 0)
+	}
+	for i := 0; i < len(TextAsBytes)/KeySize; i++ {
+		for j := 0; j < KeySize && j+KeySize*i < len(TextAsBytes); j++ {
+			TransposedText[j] = append(TransposedText[j], TextAsBytes[j+KeySize*i])
+		}
+	}
+	for i := 0; i < len(TransposedText); i++ {
+		_, _, SingleCharOfKey := DecryptSingleCharXOR(TransposedText[i])
+		key = append(key, SingleCharOfKey...)
+	}
+	DecryptedText := RepeatedKeyXOR(TextAsBytes, key)
+
+	return DecryptedText, key, len(key)
 }
