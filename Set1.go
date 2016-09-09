@@ -2,11 +2,13 @@ package crypto
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"os"
 )
 
@@ -141,7 +143,7 @@ func GuessKeySize(text []byte) int {
 	for k := 1; k <= MaxGuess; k++ {
 		ThisDist := 0.0
 		i := 0
-		for i < len(text)/k {
+		for (i+2)*k < len(text) {
 			ThisDist += float64(HammingDistance(text[i*k:(i+1)*k], text[(i+1)*k:(i+2)*k]))
 			i++
 		}
@@ -202,4 +204,33 @@ func DecryptAESECB(CipherText, key []byte) []byte {
 		mode.CryptBlocks(CipherText[i*aes.BlockSize:(i+1)*aes.BlockSize], CipherText[i*aes.BlockSize:(i+1)*aes.BlockSize])
 	}
 	return CipherText
+}
+
+func DetectAESECB(filename string) string {
+	blockLength := 16
+	minScore := 10000.0
+	var possibleLine []byte
+	file, err := os.Open(filename)
+	defer file.Close()
+	if err != nil {
+		fmt.Println("You don't have the proper file: " + filename)
+		return ""
+	}
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		thisScore := 0.0
+		line, _ := hex.DecodeString(scanner.Text())
+		for i := 0; (i+1)*blockLength < len(line); i++ {
+			for j := i + 1; (i+j+1)*blockLength < len(line); j++ {
+				thisScore += math.Abs(float64(bytes.Compare(line[i*blockLength:(i+1)*blockLength], line[(i+j)*blockLength:(i+j+1)*blockLength])))
+			}
+		}
+		thisScore /= float64(blockLength)
+		if thisScore < minScore {
+			minScore = thisScore
+			possibleLine = make([]byte, len(line))
+			copy(possibleLine, line)
+		}
+	}
+	return hex.EncodeToString(possibleLine)
 }
