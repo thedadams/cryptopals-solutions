@@ -206,6 +206,35 @@ func DecryptAESECB(CipherText, key []byte) []byte {
 	return CipherText
 }
 
+func EncryptAESECB(PlainText, key []byte) []byte {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		panic(err)
+	}
+
+	// The IV needs to be unique, but not secure. Therefore it's common to
+	// include it at the beginning of the ciphertext.
+	if len(PlainText) < aes.BlockSize {
+		panic("ciphertext too short")
+	}
+	iv := make([]byte, aes.BlockSize)
+	for i := 0; i < aes.BlockSize; i++ {
+		iv[i] = 0
+	}
+
+	// EBC mode always works in whole blocks.
+	if len(PlainText)%aes.BlockSize != 0 {
+		panic("ciphertext is not a multiple of the block size")
+	}
+
+	for i := 0; i < len(PlainText)/aes.BlockSize; i++ {
+		// CryptBlocks can work in-place if the two arguments are the same.
+		mode := cipher.NewCBCEncrypter(block, iv)
+		mode.CryptBlocks(PlainText[i*aes.BlockSize:(i+1)*aes.BlockSize], PlainText[i*aes.BlockSize:(i+1)*aes.BlockSize])
+	}
+	return PlainText
+}
+
 func DetectAESECB(filename string) string {
 	blockLength := 16
 	minScore := 10000.0
