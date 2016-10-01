@@ -108,36 +108,36 @@ func DetectRandomEBCCBCMode(BlockSize int) bool {
 	}
 }
 
-func EBCEncryptionOracle(MyString []byte) []byte {
-	Key, _ := base64.StdEncoding.DecodeString("nfUlvSGYnTjsx3YQ91XAqQ==")
+func EBCEncryptionOracle(MyString, Key []byte) []byte {
 	UnknownString, _ := base64.StdEncoding.DecodeString("Um9sbGluJyBpbiBteSA1LjAKV2l0aCBteSByYWctdG9wIGRvd24gc28gbXkgaGFpciBjYW4gYmxvdwpUaGUgZ2lybGllcyBvbiBzdGFuZGJ5IHdhdmluZyBqdXN0IHRvIHNheSBoaQpEaWQgeW91IHN0b3A/IE5vLCBJIGp1c3QgZHJvdmUgYnkK")
 	UnknownString = append(MyString, UnknownString...)
 	UnknownString = PadToMultipleNBytes(UnknownString, len(Key))
 	return EncryptAESECB(UnknownString, Key)
 }
 
-func GuessBlockSizeOfCipher() int {
+func GuessBlockSizeOfCipher(Key []byte) int {
 	IdenticalString := make([]byte, 1)
 	IdenticalString[0] = byte(1)
-	OutputSize := len(EBCEncryptionOracle(IdenticalString))
-	for OutputSize == len(EBCEncryptionOracle(IdenticalString)) {
+	OutputSize := len(EBCEncryptionOracle(IdenticalString, Key))
+	for OutputSize == len(EBCEncryptionOracle(IdenticalString, Key)) {
 		IdenticalString = append(IdenticalString, byte(1))
 	}
-	return len(EBCEncryptionOracle(IdenticalString)) - OutputSize
+	return len(EBCEncryptionOracle(IdenticalString, Key)) - OutputSize
 }
 
 func ByteAtATimeEBCDecryption() []byte {
-	BlockSize := GuessBlockSizeOfCipher()
+	Key := RandomBytes(16)
+	BlockSize := GuessBlockSizeOfCipher(Key)
 	BlocksFound := 0
 	KnownPartOfString := make([]byte, 0)
-	NumBlocksToFind := len(EBCEncryptionOracle(nil)) / BlockSize
+	NumBlocksToFind := len(EBCEncryptionOracle(nil, Key)) / BlockSize
 	for BlocksFound < NumBlocksToFind {
 		IdenticalString := bytes.Repeat([]byte{byte(62)}, BlockSize-1)
 		ThisBlock := make([]byte, 1)
 		for j := 0; j < BlockSize && j < len(ThisBlock); j++ {
 			for i := 0; i < 512; i++ {
 				ThisBlock[j] = byte(i)
-				ThisTest := EBCEncryptionOracle(append(append(append(IdenticalString, KnownPartOfString...), ThisBlock...), IdenticalString[:BlockSize-j-1]...))
+				ThisTest := EBCEncryptionOracle(append(append(append(IdenticalString, KnownPartOfString...), ThisBlock...), IdenticalString[:BlockSize-j-1]...), Key)
 				if bytes.Compare(ThisTest[:BlockSize*(BlocksFound+1)], ThisTest[BlockSize*(BlocksFound+1):2*(BlockSize*(BlocksFound+1))]) == 0 {
 					if BlockSize-j-2 > -1 {
 						ThisBlock = append(ThisBlock, byte(1))
