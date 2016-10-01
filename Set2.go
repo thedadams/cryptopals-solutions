@@ -5,6 +5,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	crand "crypto/rand"
+	"encoding/base64"
 	"fmt"
 	mrand "math/rand"
 	"time"
@@ -78,14 +79,14 @@ func RandomBytes(NumBytes int) []byte {
 	return Key
 }
 
-func EncryptionOracle(InputData []byte) ([]byte, int) {
+func EncryptionOracle(InputData []byte, BlockSize int) ([]byte, int) {
 	mrand.Seed(time.Now().UTC().UnixNano())
-	Key := RandomBytes(16)
+	Key := RandomBytes(BlockSize)
 	InputData = append(RandomBytes(mrand.Intn(6)+5), InputData...)
 	InputData = append(InputData, RandomBytes(mrand.Intn(6)+5)...)
-	InputData = PadToMultipleNBytes(InputData, 16)
+	InputData = PadToMultipleNBytes(InputData, BlockSize)
 	if mrand.Intn(2) == 1 {
-		IV := RandomBytes(16)
+		IV := RandomBytes(BlockSize)
 		return EncryptAESCBC(InputData, Key, IV), 1
 	} else {
 		return EncryptAESECB(InputData, Key), 0
@@ -94,7 +95,7 @@ func EncryptionOracle(InputData []byte) ([]byte, int) {
 
 func DetectRandomEBCCBCMode(BlockSize int) bool {
 	blockMatches := 0
-	CipherText, Mode := EncryptionOracle(bytes.Repeat([]byte{byte(mrand.Intn(BlockSize))}, BlockSize*5))
+	CipherText, Mode := EncryptionOracle(bytes.Repeat([]byte{byte(mrand.Intn(BlockSize))}, BlockSize*5), BlockSize)
 	for i := 0; i < len(CipherText)/BlockSize-1; i++ {
 		if bytes.Compare(CipherText[BlockSize*i:BlockSize*(i+1)], CipherText[BlockSize*(i+1):BlockSize*(i+2)]) == 0 {
 			blockMatches++
@@ -105,4 +106,52 @@ func DetectRandomEBCCBCMode(BlockSize int) bool {
 	} else {
 		return Mode == 1
 	}
+}
+
+func EBCEncryptionOracle(MyString []byte) []byte {
+	Key, _ := base64.StdEncoding.DecodeString("nfUlvSGYnTjsx3YQ91XAqQ==")
+	UnknownString, _ := base64.StdEncoding.DecodeString("Um9sbGluJyBpbiBteSA1LjAKV2l0aCBteSByYWctdG9wIGRvd24gc28gbXkgaGFpciBjYW4gYmxvdwpUaGUgZ2lybGllcyBvbiBzdGFuZGJ5IHdhdmluZyBqdXN0IHRvIHNheSBoaQpEaWQgeW91IHN0b3A/IE5vLCBJIGp1c3QgZHJvdmUgYnkK")
+	UnknownString = append(MyString, UnknownString...)
+	UnknownString = PadToMultipleNBytes(UnknownString, len(Key))
+	return EncryptAESECB(UnknownString, Key)
+}
+
+func GuessBlockSizeOfCipher() int {
+	IdenticalString := make([]byte, 1)
+	IdenticalString[0] = byte(1)
+	OutputSize := len(EBCEncryptionOracle(IdenticalString))
+	for OutputSize == len(EBCEncryptionOracle(IdenticalString)) {
+		IdenticalString = append(IdenticalString, byte(1))
+	}
+	return len(EBCEncryptionOracle(IdenticalString)) - OutputSize
+}
+
+func ByteAtATimeEBCDecryption() []byte {
+	BlockSize := GuessBlockSizeOfCipher()
+	BlocksFound := 0
+	KnownPartOfString := make([]byte, 0)
+	NumBlocksToFind := len(EBCEncryptionOracle(nil)) / BlockSize
+	for BlocksFound < NumBlocksToFind {
+		IdenticalString := bytes.Repeat([]byte{byte(62)}, BlockSize-1)
+		ThisBlock := make([]byte, 1)
+		for j := 0; j < BlockSize && j < len(ThisBlock); j++ {
+			for i := 0; i < 512; i++ {
+				ThisBlock[j] = byte(i)
+				ThisTest := EBCEncryptionOracle(append(append(append(IdenticalString, KnownPartOfString...), ThisBlock...), IdenticalString[:BlockSize-j-1]...))
+				if bytes.Compare(ThisTest[:BlockSize*(BlocksFound+1)], ThisTest[BlockSize*(BlocksFound+1):2*(BlockSize*(BlocksFound+1))]) == 0 {
+					if BlockSize-j-2 > -1 {
+						ThisBlock = append(ThisBlock, byte(1))
+						IdenticalString = IdenticalString[:BlockSize-j-2]
+					}
+					break
+				}
+			}
+		}
+		if len(ThisBlock) < BlockSize {
+			BlockSize = len(ThisBlock) - 1
+		}
+		KnownPartOfString = append(KnownPartOfString, ThisBlock[:BlockSize]...)
+		BlocksFound++
+	}
+	return KnownPartOfString
 }

@@ -33,3 +33,10 @@ func ExampleDetectRandomEBCCBCMode() {
 	}
 	// Output: truetruetruetruetruetruetruetruetruetrue
 }
+
+func ExampleSingleByteDecrypt() {
+	ExpectedOutput, _ := ioutil.ReadFile("Set2_12Output.txt")
+	PlainText := ByteAtATimeEBCDecryption()
+	fmt.Println(bytes.Compare(PlainText, ExpectedOutput))
+	// Output: 0
+}
