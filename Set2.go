@@ -170,3 +170,9 @@ func ParseCookie(Cookie string) map[string]string {
 	}
 	return ParsedCookie
 }
+
+func ProfileFor(Email string) string {
+	Email = strings.Replace(Email, "&", "", -1)
+	Email = strings.Replace(Email, "=", "", -1)
+	return "email=" + Email + "&uid=10&role=user"
+}

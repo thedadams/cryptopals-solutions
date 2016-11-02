@@ -54,3 +54,10 @@ func ExampleParseCookie() {
 	}
 	// Output: baz=qux,foo=bar,zap=zazzle,
 }
+
+func ExampleProfileFor() {
+	fmt.Println(ProfileFor("foo@bar.com"))
+	fmt.Println(ProfileFor("foo@bar.com&role=admin"))
+	// Output: email=foo@bar.com&uid=10&role=user
+	// email=foo@bar.comroleadmin&uid=10&role=user
+}
