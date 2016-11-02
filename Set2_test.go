@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io/ioutil"
+	"sort"
 )
 
 func ExampleExercise9() {
@@ -39,4 +40,17 @@ func ExampleExercise12() {
 	PlainText := ByteAtATimeEBCDecryption()
 	fmt.Println(bytes.Compare(PlainText, ExpectedOutput))
 	// Output: 0
+}
+
+func ExampleParseCookie() {
+	Output := ParseCookie("foo=bar&baz=qux&zap=zazzle")
+	keys := []string{}
+	for k, _ := range Output {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		fmt.Print(key + "=" + Output[key] + ",")
+	}
+	// Output: baz=qux,foo=bar,zap=zazzle,
 }

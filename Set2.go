@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	mrand "math/rand"
+	"strings"
 	"time"
 )
 
@@ -154,4 +155,18 @@ func ByteAtATimeEBCDecryption() []byte {
 		BlocksFound++
 	}
 	return KnownPartOfString
+}
+
+func ParseCookie(Cookie string) map[string]string {
+	Tokens := strings.Split(Cookie, "&")
+	ParsedCookie := make(map[string]string)
+	for _, val := range Tokens {
+		Item := strings.Split(val, "=")
+		if len(Item) != 2 {
+			fmt.Println("ERROR: Invalid Cookie")
+		} else {
+			ParsedCookie[Item[0]] = Item[1]
+		}
+	}
+	return ParsedCookie
 }
