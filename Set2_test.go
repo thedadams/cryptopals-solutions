@@ -30,7 +30,8 @@ func ExampleExercise10() {
 
 func ExampleExercise11() {
 	for i := 0; i < 10; i++ {
-		fmt.Print(DetectRandomEBCCBCMode(16))
+		GuessedCorrectly, _ := DetectRandomEBCCBCMode(16)
+		fmt.Print(GuessedCorrectly)
 	}
 	// Output: truetruetruetruetruetruetruetruetruetrue
 }
@@ -43,7 +44,7 @@ func ExampleExercise12() {
 }
 
 func ExampleParseCookie() {
-	Output := ParseCookie("foo=bar&baz=qux&zap=zazzle")
+	Output := ParsedCookie("foo=bar&baz=qux&zap=zazzle")
 	keys := []string{}
 	for k, _ := range Output {
 		keys = append(keys, k)

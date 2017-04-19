@@ -94,7 +94,7 @@ func EncryptionOracle(InputData []byte, BlockSize int) ([]byte, int) {
 	}
 }
 
-func DetectRandomEBCCBCMode(BlockSize int) bool {
+func DetectRandomEBCCBCMode(BlockSize int) (bool, int) {
 	blockMatches := 0
 	CipherText, Mode := EncryptionOracle(bytes.Repeat([]byte{byte(mrand.Intn(BlockSize))}, BlockSize*5), BlockSize)
 	for i := 0; i < len(CipherText)/BlockSize-1; i++ {
@@ -103,9 +103,9 @@ func DetectRandomEBCCBCMode(BlockSize int) bool {
 		}
 	}
 	if blockMatches > 0 {
-		return Mode == 0
+		return Mode == 0, 0
 	} else {
-		return Mode == 1
+		return Mode == 1, 0
 	}
 }
 
@@ -157,7 +157,7 @@ func ByteAtATimeEBCDecryption() []byte {
 	return KnownPartOfString
 }
 
-func ParseCookie(Cookie string) map[string]string {
+func ParsedCookie(Cookie string) map[string]string {
 	Tokens := strings.Split(Cookie, "&")
 	ParsedCookie := make(map[string]string)
 	for _, val := range Tokens {
