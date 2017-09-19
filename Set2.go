@@ -126,37 +126,6 @@ func GuessBlockSizeOfCipher(Key []byte) int {
 	return len(EBCEncryptionOracle(IdenticalString, Key)) - OutputSize
 }
 
-func ByteAtATimeEBCDecryption() []byte {
-	Key := RandomBytes(16)
-	BlockSize := GuessBlockSizeOfCipher(Key)
-	BlocksFound := 0
-	KnownPartOfString := make([]byte, 0)
-	NumBlocksToFind := len(EBCEncryptionOracle(nil, Key)) / BlockSize
-	for BlocksFound < NumBlocksToFind {
-		IdenticalString := bytes.Repeat([]byte{byte(62)}, BlockSize-1)
-		ThisBlock := make([]byte, 1)
-		for j := 0; j < BlockSize && j < len(ThisBlock); j++ {
-			for i := 0; i < 512; i++ {
-				ThisBlock[j] = byte(i)
-				ThisTest := EBCEncryptionOracle(append(append(append(IdenticalString, KnownPartOfString...), ThisBlock...), IdenticalString[:BlockSize-j-1]...), Key)
-				if bytes.Compare(ThisTest[:BlockSize*(BlocksFound+1)], ThisTest[BlockSize*(BlocksFound+1):2*(BlockSize*(BlocksFound+1))]) == 0 {
-					if BlockSize-j-2 > -1 {
-						ThisBlock = append(ThisBlock, byte(1))
-						IdenticalString = IdenticalString[:BlockSize-j-2]
-					}
-					break
-				}
-			}
-		}
-		if len(ThisBlock) < BlockSize {
-			BlockSize = len(ThisBlock) - 1
-		}
-		KnownPartOfString = append(KnownPartOfString, ThisBlock[:BlockSize]...)
-		BlocksFound++
-	}
-	return KnownPartOfString
-}
-
 func ParsedCookie(Cookie string) map[string]string {
 	Tokens := strings.Split(Cookie, "&")
 	ParsedCookie := make(map[string]string)
@@ -175,4 +144,13 @@ func ProfileFor(Email string) string {
 	Email = strings.Replace(Email, "&", "", -1)
 	Email = strings.Replace(Email, "=", "", -1)
 	return "email=" + Email + "&uid=10&role=user"
+}
+
+func ProfileAndEncrypt(Email string, Key []byte) string {
+	BlockSize := GuessBlockSizeOfCipher([]byte(Key))
+	return string(EncryptAESECB(PadToMultipleNBytes([]byte(ProfileFor(Email)), BlockSize), Key))
+}
+
+func DecryptAndParse(CipherText string, Key []byte) map[string]string {
+	return ParsedCookie(string(DecryptAESECB([]byte(CipherText), Key)))
 }
