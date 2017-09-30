@@ -109,9 +109,9 @@ func DetectRandomEBCCBCMode(BlockSize int) (bool, int) {
 	}
 }
 
-func EBCEncryptionOracle(MyString, Key []byte) []byte {
+func EBCEncryptionOracle(Prepend, MyString, Key []byte) []byte {
 	UnknownString, _ := base64.StdEncoding.DecodeString("Um9sbGluJyBpbiBteSA1LjAKV2l0aCBteSByYWctdG9wIGRvd24gc28gbXkgaGFpciBjYW4gYmxvdwpUaGUgZ2lybGllcyBvbiBzdGFuZGJ5IHdhdmluZyBqdXN0IHRvIHNheSBoaQpEaWQgeW91IHN0b3A/IE5vLCBJIGp1c3QgZHJvdmUgYnkK")
-	UnknownString = append(MyString, UnknownString...)
+	UnknownString = append(Prepend, append(MyString, UnknownString...)...)
 	UnknownString = PadToMultipleNBytes(UnknownString, len(Key))
 	return EncryptAESECB(UnknownString, Key)
 }
@@ -119,11 +119,37 @@ func EBCEncryptionOracle(MyString, Key []byte) []byte {
 func GuessBlockSizeOfCipher(Key []byte) int {
 	IdenticalString := make([]byte, 1)
 	IdenticalString[0] = byte(1)
-	OutputSize := len(EBCEncryptionOracle(IdenticalString, Key))
-	for OutputSize == len(EBCEncryptionOracle(IdenticalString, Key)) {
+	Prepend := make([]byte, 0)
+	OutputSize := len(EBCEncryptionOracle(Prepend, IdenticalString, Key))
+	for OutputSize == len(EBCEncryptionOracle(Prepend, IdenticalString, Key)) {
 		IdenticalString = append(IdenticalString, byte(1))
 	}
-	return len(EBCEncryptionOracle(IdenticalString, Key)) - OutputSize
+	return len(EBCEncryptionOracle(Prepend, IdenticalString, Key)) - OutputSize
+}
+
+func DetectLengthOfRandomBytes(RandomPrepend, Key []byte, BlockSize int) int {
+	FillPrependToBlockSize := make([]byte, 0)
+	NumBlocks := len(EBCEncryptionOracle(RandomPrepend, FillPrependToBlockSize, Key))
+	for NumBlocks == len(EBCEncryptionOracle(RandomPrepend, append(FillPrependToBlockSize, byte(0)), Key)) {
+		FillPrependToBlockSize = append(FillPrependToBlockSize, byte(0))
+	}
+	TotalExtraPadding := len(FillPrependToBlockSize)
+	FillPrependToBlockSize = append(FillPrependToBlockSize, make([]byte, 3*BlockSize)...)
+	EncryptedDataToFind := EBCEncryptionOracle(RandomPrepend, FillPrependToBlockSize, Key)
+	i := 0
+	j := -1
+	for bytes.Compare(EncryptedDataToFind[i*BlockSize:(i+1)*BlockSize], EncryptedDataToFind[(i+1)*BlockSize:(i+2)*BlockSize]) != 0 {
+		i++
+	}
+	for bytes.Compare(EncryptedDataToFind[i*BlockSize:(i+1)*BlockSize], EncryptedDataToFind[(i+1)*BlockSize:(i+2)*BlockSize]) == 0 {
+		FillPrependToBlockSize = FillPrependToBlockSize[:len(FillPrependToBlockSize)-1]
+		EncryptedDataToFind = EBCEncryptionOracle(RandomPrepend, FillPrependToBlockSize, Key)
+		j++
+	}
+	for bytes.Compare(EncryptedDataToFind[(i-1)*BlockSize:i*BlockSize], EncryptedDataToFind[i*BlockSize:(i+1)*BlockSize]) == 0 {
+		i--
+	}
+	return i*BlockSize - TotalExtraPadding + (j % BlockSize) - BlockSize*(1-j/BlockSize)
 }
 
 func ParsedCookie(Cookie string) map[string]string {

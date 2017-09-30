@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io/ioutil"
+	mrand "math/rand"
 	"sort"
 )
 
@@ -40,16 +41,17 @@ func ExampleExercise12() {
 	ExpectedOutput, _ := ioutil.ReadFile("Set2_12Output.txt")
 	Key := RandomBytes(16)
 	BlockSize := GuessBlockSizeOfCipher(Key)
+	RandomPrepend := make([]byte, 0)
 	BlocksFound := 0
 	KnownPartOfString := make([]byte, 0)
-	NumBlocksToFind := len(EBCEncryptionOracle(nil, Key)) / BlockSize
+	NumBlocksToFind := len(EBCEncryptionOracle(RandomPrepend, nil, Key)) / BlockSize
 	for BlocksFound < NumBlocksToFind {
 		IdenticalString := bytes.Repeat([]byte{byte(62)}, BlockSize-1)
 		ThisBlock := make([]byte, 1)
 		for j := 0; j < BlockSize && j < len(ThisBlock); j++ {
 			for i := 0; i < 512; i++ {
 				ThisBlock[j] = byte(i)
-				ThisTest := EBCEncryptionOracle(append(append(append(IdenticalString, KnownPartOfString...), ThisBlock...), IdenticalString[:BlockSize-j-1]...), Key)
+				ThisTest := EBCEncryptionOracle(RandomPrepend, append(append(append(IdenticalString, KnownPartOfString...), ThisBlock...), IdenticalString[:BlockSize-j-1]...), Key)
 				if bytes.Compare(ThisTest[:BlockSize*(BlocksFound+1)], ThisTest[BlockSize*(BlocksFound+1):2*(BlockSize*(BlocksFound+1))]) == 0 {
 					if BlockSize-j-2 > -1 {
 						ThisBlock = append(ThisBlock, byte(1))
@@ -98,4 +100,42 @@ func ExampleExercise13() {
 	EncryptedProfile := ProfileAndEncrypt(string(append(Email, append(Admin, LeftOver...)...)), Key)
 	fmt.Println(DecryptAndParse(EncryptedProfile[:BlockSize]+EncryptedProfile[2*BlockSize:3*BlockSize]+EncryptedProfile[BlockSize:2*BlockSize], Key)["role"])
 	// Output: admin
+}
+
+func ExampleExercise14() {
+	ExpectedOutput, _ := ioutil.ReadFile("Set2_12Output.txt")
+	Key := RandomBytes(16)
+	RandomPrepend := RandomBytes(mrand.Intn(50) + 1)
+	BlockSize := GuessBlockSizeOfCipher(Key)
+	BlocksFound := 0
+	KnownPartOfString := make([]byte, 0)
+	LengthOfRandomPrepend := DetectLengthOfRandomBytes(RandomPrepend, Key, BlockSize)
+	FillPrependToBlockSize := make([]byte, BlockSize-(LengthOfRandomPrepend%BlockSize))
+	NumBlocksToFind := len(EBCEncryptionOracle(RandomPrepend, FillPrependToBlockSize, Key))
+	NumBlocksToFind = (NumBlocksToFind - 1) / BlockSize
+	NumBlocksForPrepend := (LengthOfRandomPrepend / BlockSize) + 1
+	for BlocksFound < NumBlocksToFind && BlockSize > 0 {
+		IdenticalString := bytes.Repeat([]byte{byte(62)}, BlockSize-1)
+		ThisBlock := make([]byte, 1)
+		for j := 0; j < BlockSize && j < len(ThisBlock); j++ {
+			for i := 0; i < 512; i++ {
+				ThisBlock[j] = byte(i)
+				ThisTest := EBCEncryptionOracle(append(RandomPrepend, FillPrependToBlockSize...), append(append(append(IdenticalString, KnownPartOfString...), ThisBlock...), IdenticalString[:BlockSize-j-1]...), Key)[NumBlocksForPrepend*BlockSize:]
+				if bytes.Compare(ThisTest[:BlockSize*(BlocksFound+1)], ThisTest[BlockSize*(BlocksFound+1):2*(BlockSize*(BlocksFound+1))]) == 0 {
+					if BlockSize-j-2 > -1 {
+						ThisBlock = append(ThisBlock, byte(1))
+						IdenticalString = IdenticalString[:BlockSize-j-2]
+					}
+					break
+				}
+			}
+		}
+		if len(ThisBlock) < BlockSize {
+			BlockSize = len(ThisBlock) - 1
+		}
+		KnownPartOfString = append(KnownPartOfString, ThisBlock[:BlockSize]...)
+		BlocksFound++
+	}
+	fmt.Println(bytes.Compare(KnownPartOfString, ExpectedOutput))
+	// Output: 0
 }
