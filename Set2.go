@@ -199,3 +199,21 @@ func VerifyPadding(Text []byte, BlockSize int) ([]byte, error) {
 	}
 	return Text[:len(Text)-1-int(PaddedByte)], nil
 }
+
+func PrependAppendCBCEncrypt(Text, Key, IV []byte) []byte {
+	Prepend := []byte("comment1=cooking%20MCs;userdata=")
+	Append := []byte(";comment2=%20like%20a%20pound%20of%20bacon")
+	Text = bytes.Replace(bytes.Replace(Text, []byte("="), []byte(""), -1), []byte(";"), []byte(""), -1)
+	return EncryptAESCBC(PadToMultipleNBytes(append(append(Prepend, Text...), Append...), 16), Key, IV)
+}
+
+func DecryptCBCCheckAdim(CipherText, Key, IV []byte) bool {
+	Text := DecryptAESCBC(CipherText, Key, IV)
+	for _, val := range bytes.Split(Text, []byte(";")) {
+		tuple := bytes.Split(val, []byte("="))
+		if len(tuple) == 2 && bytes.Equal(tuple[0], []byte("admin")) && bytes.Equal(tuple[1], []byte("true")) {
+			return true
+		}
+	}
+	return false
+}

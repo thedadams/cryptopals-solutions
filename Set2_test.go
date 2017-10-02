@@ -25,8 +25,8 @@ func ExampleExercise10() {
 	ExpectedOutput, _ := ioutil.ReadFile("Set2_10Output.txt")
 	FileTextAsBytes, _ := base64.StdEncoding.DecodeString(string(FileText))
 	PlainText := DecryptAESCBC(FileTextAsBytes, []byte("YELLOW SUBMARINE"), iv)
-	fmt.Println(bytes.Compare(PlainText, ExpectedOutput))
-	// Output: 0
+	fmt.Println(bytes.Equal(PlainText, ExpectedOutput))
+	// Output: true
 }
 
 func ExampleExercise11() {
@@ -67,8 +67,8 @@ func ExampleExercise12() {
 		KnownPartOfString = append(KnownPartOfString, ThisBlock[:BlockSize]...)
 		BlocksFound++
 	}
-	fmt.Println(bytes.Compare(KnownPartOfString, ExpectedOutput))
-	// Output: 0
+	fmt.Println(bytes.Equal(KnownPartOfString, ExpectedOutput))
+	// Output: true
 }
 
 func ExampleParseCookie() {
@@ -136,8 +136,8 @@ func ExampleExercise14() {
 		KnownPartOfString = append(KnownPartOfString, ThisBlock[:BlockSize]...)
 		BlocksFound++
 	}
-	fmt.Println(bytes.Compare(KnownPartOfString, ExpectedOutput))
-	// Output: 0
+	fmt.Println(bytes.Equal(KnownPartOfString, ExpectedOutput))
+	// Output: true
 }
 
 func ExampleExercise15() {
@@ -150,4 +150,22 @@ func ExampleExercise15() {
 	_, err = VerifyPadding([]byte("ICE ICE BABY OH\x01"), 16)
 	fmt.Print(err == nil)
 	// Output: truefalsefalsetrue
+}
+
+func ExampleExercise16() {
+	Key := RandomBytes(aes.BlockSize)
+	IV := RandomBytes(aes.BlockSize)
+
+	AdminText := PadToMultipleNBytes([]byte(";admin=true;a=b"), aes.BlockSize)
+	FirstBlock := PadToMultipleNBytes([]byte("YELLOW SUBMARINE"), aes.BlockSize)
+	SecondBlock := make([]byte, aes.BlockSize)
+	for i := 0; i < aes.BlockSize; i++ {
+		SecondBlock[i] = 0
+	}
+	EncryptedText := PrependAppendCBCEncrypt(append(FirstBlock, SecondBlock...), Key, IV)
+	for i := 3 * aes.BlockSize; i < 4*aes.BlockSize; i++ {
+		EncryptedText[i] ^= AdminText[i%aes.BlockSize]
+	}
+	fmt.Println(DecryptCBCCheckAdim(EncryptedText, Key, IV))
+	// Output: true
 }
