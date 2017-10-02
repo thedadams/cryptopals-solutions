@@ -139,3 +139,15 @@ func ExampleExercise14() {
 	fmt.Println(bytes.Compare(KnownPartOfString, ExpectedOutput))
 	// Output: 0
 }
+
+func ExampleExercise15() {
+	_, err := VerifyPadding([]byte("ICE ICE BABY\x04\x04\x04\x04"), 16)
+	fmt.Print(err == nil)
+	_, err = VerifyPadding([]byte("ICE ICE BABY\x05\x05\x05\x05"), 16)
+	fmt.Print(err == nil)
+	_, err = VerifyPadding([]byte("ICE ICE BABY\x01\x02\x03\x04"), 16)
+	fmt.Print(err == nil)
+	_, err = VerifyPadding([]byte("ICE ICE BABY OH\x01"), 16)
+	fmt.Print(err == nil)
+	// Output: truefalsefalsetrue
+}

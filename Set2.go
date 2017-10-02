@@ -12,6 +12,12 @@ import (
 	"time"
 )
 
+type PaddingError []byte
+
+func (f PaddingError) Error() string {
+	return fmt.Sprintf("math: square root of negative number %v", []byte(f))
+}
+
 // Given an int, we pad the bytes to the nearest multiple of N.
 func PadToMultipleNBytes(text []byte, N int) []byte {
 	BytesToAdd := N - (len(text) % N)
@@ -179,4 +185,17 @@ func ProfileAndEncrypt(Email string, Key []byte) string {
 
 func DecryptAndParse(CipherText string, Key []byte) map[string]string {
 	return ParsedCookie(string(DecryptAESECB([]byte(CipherText), Key)))
+}
+
+func VerifyPadding(Text []byte, BlockSize int) ([]byte, error) {
+	if Text[len(Text)-1] >= byte(BlockSize) {
+		return Text, nil
+	}
+	PaddedByte := Text[len(Text)-1]
+	for i := len(Text) - 1; i > len(Text)-1-int(PaddedByte); i-- {
+		if Text[i] != PaddedByte {
+			return PaddingError(Text), PaddingError(Text)
+		}
+	}
+	return Text[:len(Text)-1-int(PaddedByte)], nil
 }
