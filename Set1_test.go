@@ -41,10 +41,11 @@ func ExampleHammingDistance() {
 }
 
 func ExampleGuessKeySize() {
+	// Read the file with the encrypted string encoded in base64
 	fileText, _ := ioutil.ReadFile("Set1_6.txt")
+	// Decode the string.
 	fileTextAsBytes, _ := base64.StdEncoding.DecodeString(string(fileText))
-	keySize := GuessKeySize(fileTextAsBytes)
-	fmt.Println(keySize)
+	fmt.Println(GuessKeySize(fileTextAsBytes))
 	// Output: 29
 }
 
