@@ -1,4 +1,4 @@
-package crypto
+package cryptopals
 
 import (
 	"encoding/base64"
