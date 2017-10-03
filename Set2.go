@@ -57,7 +57,7 @@ func Exercise12(unknownString []byte) []byte {
 		thisBlock := make([]byte, 0)
 		for j := 0; j < blockSize; j++ {
 			thisBlock = append(thisBlock, byte(0))
-			for i := 0; i < 512; i++ {
+			for i := 0; i < 256; i++ {
 				thisBlock[j] = byte(i)
 				thisTest := e.Encrypt(append(append(append(identicalString, knownPartOfString...), thisBlock...), identicalString[:blockSize-j-1]...))
 				// Test the appropriate encrypted blocks to see if they are the same.
@@ -118,7 +118,7 @@ func Exercise14(unknownString []byte) []byte {
 		identicalString := bytes.Repeat([]byte{byte(62)}, blockSize-1)
 		thisBlock := make([]byte, 1)
 		for j := 0; j < blockSize && j < len(thisBlock); j++ {
-			for i := 0; i < 512; i++ {
+			for i := 0; i < 256; i++ {
 				thisBlock[j] = byte(i)
 				thisTest := e.Encrypt(append(append(append(append(fillPrependToBlockSize, identicalString...), knownPartOfString...), thisBlock...), identicalString[:blockSize-j-1]...))[numBlocksForPrepend*blockSize:]
 				if bytes.Equal(thisTest[:blockSize*(blocksFound+1)], thisTest[blockSize*(blocksFound+1):2*(blockSize*(blocksFound+1))]) {

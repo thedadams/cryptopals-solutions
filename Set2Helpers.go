@@ -275,7 +275,7 @@ func VerifyPadding(text []byte, blockSize int) ([]byte, PaddingError) {
 
 func nonEnglishChars() []byte {
 	chars := make([]byte, 0)
-	for i := 0; i < 512; i++ {
+	for i := 0; i < 256; i++ {
 		if !isEnglishChar(byte(i)) {
 			chars = append(chars, byte(i))
 		}
