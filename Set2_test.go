@@ -2,86 +2,45 @@ package crypto
 
 import (
 	"bytes"
-	"crypto/aes"
-	"encoding/base64"
 	"fmt"
 	"io/ioutil"
-	mrand "math/rand"
 	"sort"
 )
 
 func ExampleExercise9() {
-	Padded := PadToMultipleNBytes([]byte("YELLOW SUBMARINE"), 20)
-	fmt.Println(len(Padded), string(Padded))
-	// Output: 20 YELLOW SUBMARINE
+	fmt.Println(string(Exercise9()))
+	// Output: YELLOW SUBMARINE
 }
 
 func ExampleExercise10() {
-	iv := make([]byte, aes.BlockSize)
-	for i := 0; i < aes.BlockSize; i++ {
-		iv[i] = 0
-	}
-	FileText, _ := ioutil.ReadFile("Set2_10.txt")
 	ExpectedOutput, _ := ioutil.ReadFile("Set2_10Output.txt")
-	FileTextAsBytes, _ := base64.StdEncoding.DecodeString(string(FileText))
-	PlainText := DecryptAESCBC(FileTextAsBytes, []byte("YELLOW SUBMARINE"), iv)
-	fmt.Println(bytes.Equal(PlainText, ExpectedOutput))
+	fmt.Println(bytes.Equal(Exercise10("Set2_10.txt"), ExpectedOutput))
 	// Output: true
 }
 
 func ExampleExercise11() {
-	for i := 0; i < 10; i++ {
-		GuessedCorrectly, _ := DetectRandomEBCCBCMode(16)
-		fmt.Print(GuessedCorrectly)
-	}
+	Exercise11()
 	// Output: truetruetruetruetruetruetruetruetruetrue
 }
 
 func ExampleExercise12() {
-	ExpectedOutput, _ := ioutil.ReadFile("Set2_12Output.txt")
-	Key := RandomBytes(16)
-	BlockSize := GuessBlockSizeOfCipher(Key)
-	RandomPrepend := make([]byte, 0)
-	BlocksFound := 0
-	KnownPartOfString := make([]byte, 0)
-	NumBlocksToFind := len(EBCEncryptionOracle(RandomPrepend, nil, Key)) / BlockSize
-	for BlocksFound < NumBlocksToFind {
-		IdenticalString := bytes.Repeat([]byte{byte(62)}, BlockSize-1)
-		ThisBlock := make([]byte, 1)
-		for j := 0; j < BlockSize && j < len(ThisBlock); j++ {
-			for i := 0; i < 512; i++ {
-				ThisBlock[j] = byte(i)
-				ThisTest := EBCEncryptionOracle(RandomPrepend, append(append(append(IdenticalString, KnownPartOfString...), ThisBlock...), IdenticalString[:BlockSize-j-1]...), Key)
-				if bytes.Compare(ThisTest[:BlockSize*(BlocksFound+1)], ThisTest[BlockSize*(BlocksFound+1):2*(BlockSize*(BlocksFound+1))]) == 0 {
-					if BlockSize-j-2 > -1 {
-						ThisBlock = append(ThisBlock, byte(1))
-						IdenticalString = IdenticalString[:BlockSize-j-2]
-					}
-					break
-				}
-			}
-		}
-		if len(ThisBlock) < BlockSize {
-			BlockSize = len(ThisBlock) - 1
-		}
-		KnownPartOfString = append(KnownPartOfString, ThisBlock[:BlockSize]...)
-		BlocksFound++
-	}
-	fmt.Println(bytes.Equal(KnownPartOfString, ExpectedOutput))
+	expectedOutput, _ := ioutil.ReadFile("Set2_12Output.txt")
+	expectedOutput = bytes.TrimSpace(expectedOutput)
+	fmt.Println(bytes.Equal(Exercise12(expectedOutput), expectedOutput))
 	// Output: true
 }
 
-func ExampleParseCookie() {
-	Output := ParsedCookie("foo=bar&baz=qux&zap=zazzle")
+func ExampleParsedCookie() {
+	Output := ParsedCookie("foo=bar&baz=qux&zap=sizzle")
 	keys := []string{}
-	for k, _ := range Output {
+	for k := range Output {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 	for _, key := range keys {
 		fmt.Print(key + "=" + Output[key] + ",")
 	}
-	// Output: baz=qux,foo=bar,zap=zazzle,
+	// Output: baz=qux,foo=bar,zap=sizzle,
 }
 
 func ExampleProfileFor() {
@@ -92,80 +51,23 @@ func ExampleProfileFor() {
 }
 
 func ExampleExercise13() {
-	Key := RandomBytes(16)
-	BlockSize := GuessBlockSizeOfCipher(Key)
-	Email := []byte("thedad@me.")
-	Admin := PadToMultipleNBytes([]byte("admin"), BlockSize)
-	LeftOver := []byte("com")
-	EncryptedProfile := ProfileAndEncrypt(string(append(Email, append(Admin, LeftOver...)...)), Key)
-	fmt.Println(DecryptAndParse(EncryptedProfile[:BlockSize]+EncryptedProfile[2*BlockSize:3*BlockSize]+EncryptedProfile[BlockSize:2*BlockSize], Key)["role"])
+	Exercise13()
 	// Output: admin
 }
 
 func ExampleExercise14() {
-	ExpectedOutput, _ := ioutil.ReadFile("Set2_12Output.txt")
-	Key := RandomBytes(16)
-	RandomPrepend := RandomBytes(mrand.Intn(50) + 1)
-	BlockSize := GuessBlockSizeOfCipher(Key)
-	BlocksFound := 0
-	KnownPartOfString := make([]byte, 0)
-	LengthOfRandomPrepend := DetectLengthOfRandomBytes(RandomPrepend, Key, BlockSize)
-	FillPrependToBlockSize := make([]byte, BlockSize-(LengthOfRandomPrepend%BlockSize))
-	NumBlocksToFind := len(EBCEncryptionOracle(RandomPrepend, FillPrependToBlockSize, Key))
-	NumBlocksToFind = (NumBlocksToFind - 1) / BlockSize
-	NumBlocksForPrepend := (LengthOfRandomPrepend / BlockSize) + 1
-	for BlocksFound < NumBlocksToFind && BlockSize > 0 {
-		IdenticalString := bytes.Repeat([]byte{byte(62)}, BlockSize-1)
-		ThisBlock := make([]byte, 1)
-		for j := 0; j < BlockSize && j < len(ThisBlock); j++ {
-			for i := 0; i < 512; i++ {
-				ThisBlock[j] = byte(i)
-				ThisTest := EBCEncryptionOracle(append(RandomPrepend, FillPrependToBlockSize...), append(append(append(IdenticalString, KnownPartOfString...), ThisBlock...), IdenticalString[:BlockSize-j-1]...), Key)[NumBlocksForPrepend*BlockSize:]
-				if bytes.Compare(ThisTest[:BlockSize*(BlocksFound+1)], ThisTest[BlockSize*(BlocksFound+1):2*(BlockSize*(BlocksFound+1))]) == 0 {
-					if BlockSize-j-2 > -1 {
-						ThisBlock = append(ThisBlock, byte(1))
-						IdenticalString = IdenticalString[:BlockSize-j-2]
-					}
-					break
-				}
-			}
-		}
-		if len(ThisBlock) < BlockSize {
-			BlockSize = len(ThisBlock) - 1
-		}
-		KnownPartOfString = append(KnownPartOfString, ThisBlock[:BlockSize]...)
-		BlocksFound++
-	}
-	fmt.Println(bytes.Equal(KnownPartOfString, ExpectedOutput))
+	expectedOutput, _ := ioutil.ReadFile("Set2_12Output.txt")
+	expectedOutput = bytes.TrimSpace(expectedOutput)
+	fmt.Println(bytes.Equal(Exercise14(expectedOutput), expectedOutput))
 	// Output: true
 }
 
 func ExampleExercise15() {
-	_, err := VerifyPadding([]byte("ICE ICE BABY\x04\x04\x04\x04"), 16)
-	fmt.Print(err == nil)
-	_, err = VerifyPadding([]byte("ICE ICE BABY\x05\x05\x05\x05"), 16)
-	fmt.Print(err == nil)
-	_, err = VerifyPadding([]byte("ICE ICE BABY\x01\x02\x03\x04"), 16)
-	fmt.Print(err == nil)
-	_, err = VerifyPadding([]byte("ICE ICE BABY OH\x01"), 16)
-	fmt.Print(err == nil)
+	Exercise15()
 	// Output: truefalsefalsetrue
 }
 
 func ExampleExercise16() {
-	Key := RandomBytes(aes.BlockSize)
-	IV := RandomBytes(aes.BlockSize)
-
-	AdminText := PadToMultipleNBytes([]byte(";admin=true;a=b"), aes.BlockSize)
-	FirstBlock := PadToMultipleNBytes([]byte("YELLOW SUBMARINE"), aes.BlockSize)
-	SecondBlock := make([]byte, aes.BlockSize)
-	for i := 0; i < aes.BlockSize; i++ {
-		SecondBlock[i] = 0
-	}
-	EncryptedText := PrependAppendCBCEncrypt(append(FirstBlock, SecondBlock...), Key, IV)
-	for i := 3 * aes.BlockSize; i < 4*aes.BlockSize; i++ {
-		EncryptedText[i] ^= AdminText[i%aes.BlockSize]
-	}
-	fmt.Println(DecryptCBCCheckAdim(EncryptedText, Key, IV))
+	Exercise16()
 	// Output: true
 }
