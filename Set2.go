@@ -145,13 +145,13 @@ func Exercise14(unknownString []byte) []byte {
 // Title: PKCS#7 padding validation
 // Description: Write a function that takes a plaintext, determines if it has valid PKCS#7 padding, and strips the padding off.
 func Exercise15() {
-	_, err := VerifyPadding([]byte("ICE ICE BABY\x04\x04\x04\x04"), 16)
+	_, err := isValidPadding([]byte("ICE ICE BABY\x04\x04\x04\x04"), 16)
 	fmt.Print(err == nil)
-	_, err = VerifyPadding([]byte("ICE ICE BABY\x05\x05\x05\x05"), 16)
+	_, err = isValidPadding([]byte("ICE ICE BABY\x05\x05\x05\x05"), 16)
 	fmt.Print(err == nil)
-	_, err = VerifyPadding([]byte("ICE ICE BABY\x01\x02\x03\x04"), 16)
+	_, err = isValidPadding([]byte("ICE ICE BABY\x01\x02\x03\x04"), 16)
 	fmt.Print(err == nil)
-	_, err = VerifyPadding([]byte("ICE ICE BABY OH\x01"), 16)
+	_, err = isValidPadding([]byte("ICE ICE BABY OH\x01"), 16)
 	fmt.Print(err == nil)
 }
 
@@ -162,15 +162,73 @@ func Exercise15() {
 // Instead, modify the ciphertext (without knowledge of the AES key) to accomplish this.
 func Exercise16() {
 	c := NewAESCBC(nil, nil)
-	adminText := PadToMultipleNBytes([]byte(";admin=true;a=b"), aes.BlockSize)
-	firstBlock := PadToMultipleNBytes([]byte("YELLOW SUBMARINE"), aes.BlockSize)
+	adminText := []byte(";admin=true;a=b")
+	firstBlock := []byte("YELLOW SUBMARINE")
 	secondBlock := make([]byte, aes.BlockSize)
 	for i := 0; i < aes.BlockSize; i++ {
 		secondBlock[i] = 0
 	}
 	encryptedText := c.PrependAppendEncrypt(append(firstBlock, secondBlock...))
-	for i := 3 * aes.BlockSize; i < 4*aes.BlockSize; i++ {
+	for i := 2 * aes.BlockSize; i < 3*aes.BlockSize && i%aes.BlockSize < len(adminText); i++ {
 		encryptedText[i] ^= adminText[i%aes.BlockSize]
 	}
 	fmt.Println(c.DecryptCheckAdmin(encryptedText))
+}
+
+// Exercise17 performs the corresponding exercise from cryptopals.
+// Title: The CBC padding oracle
+// Description: Decrypt strings encrypted in CBC mode by checking the padding on an altered ciphertext.
+func Exercise17() {
+	// Get the CBC encrypter and decrypter.
+	// The key and iv are both nil so they will be random.
+	c := NewAESCBC(nil, nil)
+	cipherText, _ := c.PaddingOracleEncrypt()
+	// Store the decrypted text so we can check that the algorithm works
+	decryptForCheck := c.Decrypt(cipherText)
+	// Number of blocks we need to find.
+	numBlocks := len(cipherText) / aes.BlockSize
+	blocksFound := 0
+	// A place to store the plaintext as we decrypt it.
+	plainText := make([]byte, 0)
+	// A place to store the chunk of ciphertext or iv that we are changing.
+	var cipherTextToChange []byte
+	for blocksFound < numBlocks {
+		thisBlock := make([]byte, aes.BlockSize)
+		for i := 1; i <= len(thisBlock); i++ {
+			// XOR with the appropriate padding bytes.
+			XORTwoByteStringsInPlace(thisBlock[len(thisBlock)-i:len(thisBlock)], bytes.Repeat([]byte{byte(i)}, i))
+			// If we are decrypting the last block, then we need to change the IV.
+			if blocksFound == numBlocks-1 {
+				cipherTextToChange = c.iv[:]
+			} else {
+				// Otherwise we get the appropriate chunk of cipher text.
+				cipherTextToChange = cipherText[len(cipherText)-2*aes.BlockSize : len(cipherText)-aes.BlockSize]
+			}
+			for j := 255; j >= 0; j-- {
+				// Check this bytes.
+				thisBlock[len(thisBlock)-i] ^= byte(j)
+				// XOR, check padding, and XOR back.
+				XORTwoByteStringsInPlace(cipherTextToChange, thisBlock)
+				validPadding := c.DecryptAndCheckPadding(cipherText)
+				XORTwoByteStringsInPlace(cipherTextToChange, thisBlock)
+				// If we have the right padding, then we have the right byte.
+				if validPadding {
+					break
+				}
+				// Undo the XOR to try another.
+				thisBlock[len(thisBlock)-i] ^= byte(j)
+			}
+			// Undo the XOR padding because we are done with this byte.
+			XORTwoByteStringsInPlace(thisBlock[len(thisBlock)-i:len(thisBlock)], bytes.Repeat([]byte{byte(i)}, i))
+		}
+		// We are done with this check of cipher text so we append the plain text to it.
+		// We are doing this from last chunk to first so we append backwards.
+		plainText = append(thisBlock, plainText...)
+		// Shorten the cipher text so we can check padding easily.
+		cipherText = cipherText[:len(cipherText)-aes.BlockSize]
+		blocksFound++
+	}
+	// Print to check that we completed this correctly.
+	// If we did, this should print true.
+	fmt.Println(bytes.Equal(plainText, decryptForCheck))
 }

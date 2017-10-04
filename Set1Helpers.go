@@ -34,24 +34,29 @@ func NewAESECB(key []byte) AESECB {
 
 // Decrypt decrypts text that was encrypted using ECB.
 func (ecb AESECB) Decrypt(cipherText []byte) []byte {
-	for i := 0; i < len(cipherText)/aes.BlockSize; i++ {
-		// CryptBlocks can work in-place if the two arguments are the same.
-		mode := cipher.NewCBCDecrypter(ecb.block, ecb.iv)
-		mode.CryptBlocks(cipherText[i*aes.BlockSize:(i+1)*aes.BlockSize], cipherText[i*aes.BlockSize:(i+1)*aes.BlockSize])
+	// ECB mode always works in whole blocks.
+	if len(cipherText)%aes.BlockSize != 0 {
+		panic("ciphertext is not a multiple of the block size")
 	}
-	return cipherText
+
+	decryptedText := make([]byte, len(cipherText))
+	for i := 0; i < len(cipherText)/aes.BlockSize; i++ {
+
+		mode := cipher.NewCBCDecrypter(ecb.block, ecb.iv)
+		mode.CryptBlocks(decryptedText[i*aes.BlockSize:(i+1)*aes.BlockSize], cipherText[i*aes.BlockSize:(i+1)*aes.BlockSize])
+	}
+	return decryptedText
 }
 
 // Encrypt encrypts plain text using ECB mode.
 func (ecb AESECB) Encrypt(plainText []byte) []byte {
 	plainText = PadToMultipleNBytes(plainText, aes.BlockSize)
-
+	encryptedText := make([]byte, len(plainText))
 	for i := 0; i < len(plainText)/aes.BlockSize; i++ {
-		// CryptBlocks can work in-place if the two arguments are the same.
 		mode := cipher.NewCBCEncrypter(ecb.block, ecb.iv)
-		mode.CryptBlocks(plainText[i*aes.BlockSize:(i+1)*aes.BlockSize], plainText[i*aes.BlockSize:(i+1)*aes.BlockSize])
+		mode.CryptBlocks(encryptedText[i*aes.BlockSize:(i+1)*aes.BlockSize], plainText[i*aes.BlockSize:(i+1)*aes.BlockSize])
 	}
-	return plainText
+	return encryptedText
 }
 
 // HexStringTo64String decodes a hex string and encodes it as base64.
@@ -69,7 +74,7 @@ func HexStringTo64String(hexString string) string {
 func XORTwoByteStrings(s1, s2 []byte) []byte {
 	// If the byte strings are different lengths, we cannot XOR them.
 	if len(s1) != len(s2) {
-		fmt.Println("error: byte arrays must have the same length.")
+		fmt.Println("error: byte arrays must have the same length.", len(s1), "!=", len(s2))
 		return nil
 	}
 	dest := make([]byte, len(s1))
@@ -77,6 +82,18 @@ func XORTwoByteStrings(s1, s2 []byte) []byte {
 		dest[i] = s1[i] ^ s2[i]
 	}
 	return dest
+}
+
+// XORTwoByteStringsInPlace does exactly as it sounds and puts the answer in the first argument.
+func XORTwoByteStringsInPlace(s1, s2 []byte) {
+	// If the byte strings are different lengths, we cannot XOR them.
+	if len(s1) != len(s2) {
+		fmt.Println("error: byte arrays must have the same length.", len(s1), "!=", len(s2))
+		return
+	}
+	for i := 0; i < len(s1); i++ {
+		s1[i] ^= s2[i]
+	}
 }
 
 func isEnglishChar(a byte) bool {

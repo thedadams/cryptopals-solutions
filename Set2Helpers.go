@@ -5,6 +5,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	cRand "crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"math/rand"
 	"strings"
@@ -44,6 +45,10 @@ func NewAESCBC(key, iv []byte) AESCBC {
 
 // PadToMultipleNBytes pads the bytes to the nearest multiple of N.
 func PadToMultipleNBytes(text []byte, N int) []byte {
+	// If the padding is already valid, then we shouldn't pad.
+	if _, err := isValidPadding(text, N); err == nil {
+		return text
+	}
 	BytesToAdd := N - (len(text) % N)
 	return append(text, bytes.Repeat([]byte{byte(BytesToAdd)}, BytesToAdd)...)
 }
@@ -55,27 +60,29 @@ func (c AESCBC) Decrypt(cipherText []byte) []byte {
 		panic("ciphertext is not a multiple of the block size")
 	}
 
+	decryptedText := make([]byte, len(cipherText))
+
 	mode := cipher.NewCBCDecrypter(c.block, c.iv)
 
 	for i := 0; i < len(cipherText)/aes.BlockSize; i++ {
-		// CryptBlocks can work in-place if the two arguments are the same.
-		mode.CryptBlocks(cipherText[i*aes.BlockSize:(i+1)*aes.BlockSize], cipherText[i*aes.BlockSize:(i+1)*aes.BlockSize])
+		mode.CryptBlocks(decryptedText[i*aes.BlockSize:(i+1)*aes.BlockSize], cipherText[i*aes.BlockSize:(i+1)*aes.BlockSize])
 	}
-	return cipherText
+	return decryptedText
 }
 
 // Encrypt encrypts the plainText using CBC mode.
 func (c AESCBC) Encrypt(plainText []byte) []byte {
 	// CBC mode always works in whole blocks.
 	plainText = PadToMultipleNBytes(plainText, len(c.key))
+	encryptedText := make([]byte, len(plainText))
 
 	mode := cipher.NewCBCEncrypter(c.block, c.iv)
 
 	for i := 0; i < len(plainText)/aes.BlockSize; i++ {
 		// CryptBlocks can work in-place if the two arguments are the same.
-		mode.CryptBlocks(plainText[i*aes.BlockSize:(i+1)*aes.BlockSize], plainText[i*aes.BlockSize:(i+1)*aes.BlockSize])
+		mode.CryptBlocks(encryptedText[i*aes.BlockSize:(i+1)*aes.BlockSize], plainText[i*aes.BlockSize:(i+1)*aes.BlockSize])
 	}
-	return plainText
+	return encryptedText
 }
 
 // PrependAppendEncrypt prepends and appends strings and encrypts the data.
@@ -99,6 +106,21 @@ func (c AESCBC) DecryptCheckAdmin(cipherText []byte) bool {
 		}
 	}
 	return false
+}
+
+// PaddingOracleEncrypt encrypts one of 10 strings chosen at random and provides the
+// cipher text and IV to the attacker.
+func (c AESCBC) PaddingOracleEncrypt() ([]byte, []byte) {
+	randomStrings := []string{"MDAwMDAwTm93IHRoYXQgdGhlIHBhcnR5IGlzIGp1bXBpbmc=", "MDAwMDAxV2l0aCB0aGUgYmFzcyBraWNrZWQgaW4gYW5kIHRoZSBWZWdhJ3MgYXJlIHB1bXBpbic=", "MDAwMDAyUXVpY2sgdG8gdGhlIHBvaW50LCB0byB0aGUgcG9pbnQsIG5vIGZha2luZw==", "MDAwMDAzQ29va2luZyBNQydzIGxpa2UgYSBwb3VuZCBvZiBiYWNvbg==", "MDAwMDA0QnVybmluZyAnZW0sIGlmIHlvdSBhaW4ndCBxdWljayBhbmQgbmltYmxl", "MDAwMDA1SSBnbyBjcmF6eSB3aGVuIEkgaGVhciBhIGN5bWJhbA==", "MDAwMDA2QW5kIGEgaGlnaCBoYXQgd2l0aCBhIHNvdXBlZCB1cCB0ZW1wbw==", "MDAwMDA3SSdtIG9uIGEgcm9sbCwgaXQncyB0aW1lIHRvIGdvIHNvbG8=", "MDAwMDA4b2xsaW4nIGluIG15IGZpdmUgcG9pbnQgb2g=", "MDAwMDA5aXRoIG15IHJhZy10b3AgZG93biBzbyBteSBoYWlyIGNhbiBibG93"}
+	s, _ := base64.StdEncoding.DecodeString(randomStrings[rand.Intn(10)])
+	return c.Encrypt([]byte(s)), c.iv
+
+}
+
+// DecryptAndCheckPadding decrypts and consumes the cipher text and returns whether the padding is valid.
+func (c AESCBC) DecryptAndCheckPadding(cipherText []byte) bool {
+	_, err := isValidPadding(c.Decrypt(cipherText), c.block.BlockSize())
+	return err == nil
 }
 
 // ECBEncryptionOracle is used exactly as described on the cryptopals website.
@@ -255,22 +277,21 @@ func ProfileFor(Email string) string {
 	return "email=" + Email + "&uid=10&role=user"
 }
 
-// VerifyPadding verifies that the text has the proper padding, strips it, and returns the text.
+// isValidPadding verifies that the text has the proper padding, strips it, and returns the text.
 // If we encounter an error, then we return a PaddingError
 // Otherwise, the error is nil.
-func VerifyPadding(text []byte, blockSize int) ([]byte, PaddingError) {
-	// If the last byte text is not an apparent padding byte, we assume everything is good.
-	if text[len(text)-1] >= byte(blockSize) {
-		return text, nil
-	}
-	// Now we check that the appropriate bytes are padding bytes.
+func isValidPadding(text []byte, blockSize int) ([]byte, PaddingError) {
 	paddedByte := text[len(text)-1]
+	// If the last byte is 0 or greater than the block length, then we know the padding is invalid.
+	if paddedByte > byte(blockSize) || paddedByte <= 0 {
+		return text, PaddingError(text)
+	}
 	for i := len(text) - 1; i > len(text)-1-int(paddedByte); i-- {
 		if text[i] != paddedByte {
 			return text, PaddingError(text)
 		}
 	}
-	return text[:len(text)-1-int(paddedByte)], nil
+	return text[:len(text)-int(paddedByte)], nil
 }
 
 func nonEnglishChars() []byte {
