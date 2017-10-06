@@ -71,8 +71,3 @@ func ExampleExercise16() {
 	Exercise16()
 	// Output: true
 }
-
-func ExampleExercise17() {
-	Exercise17()
-	// Output: true
-}

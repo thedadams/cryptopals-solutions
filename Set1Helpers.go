@@ -72,13 +72,12 @@ func HexStringTo64String(hexString string) string {
 
 // XORTwoByteStrings does exactly as it sounds.
 func XORTwoByteStrings(s1, s2 []byte) []byte {
-	// If the byte strings are different lengths, we cannot XOR them.
-	if len(s1) != len(s2) {
-		fmt.Println("error: byte arrays must have the same length.", len(s1), "!=", len(s2))
-		return nil
+	length := len(s1)
+	if length > len(s2) {
+		length = len(s2)
 	}
-	dest := make([]byte, len(s1))
-	for i := 0; i < len(dest); i++ {
+	dest := make([]byte, length)
+	for i := 0; i < length; i++ {
 		dest[i] = s1[i] ^ s2[i]
 	}
 	return dest
