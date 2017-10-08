@@ -19,9 +19,9 @@ func ExampleExercise2() {
 }
 
 func ExampleExercise3() {
-	d, l, k := Exercise3()
-	fmt.Println(string(d), l, string(k))
-	// Output: Cooking MC's like a pound of bacon 33 X
+	d, _, k := Exercise3()
+	fmt.Println(string(d), string(k))
+	// Output: Cooking MC's like a pound of bacon X
 }
 
 func ExampleExercise4() {
