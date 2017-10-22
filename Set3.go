@@ -79,6 +79,7 @@ func Exercise18() {
 // Exercise19 performs the corresponding exercise from cryptopals.
 // Title: Break fixed-nonce CTR mode using substitutions.
 // Description: Attack this cryptosystem piecemeal: guess letters, use expected English language frequency to validate guesses, catch common English trigrams, and so on.
+// I misunderstood what this problem wanted me to do. I finished it as Exercise 20 wanted us to do without realizing it.
 func Exercise19() {
 	file, _ := os.Open("Set3_19.txt")
 	plainTexts := make([][]byte, 0)
@@ -94,5 +95,32 @@ func Exercise19() {
 	}
 	file.Close()
 	_, key, _ := BreakRepeatingXOR(firstBlocksOfCipherText, 16, true)
+	fmt.Println(bytes.Equal(key[:ctrMode.block.BlockSize()], ctrMode.keystream(make([]byte, ctrMode.block.BlockSize()))))
+}
+
+// Exercise20 performs the corresponding exercise from cryptopals.
+// Title: Break fixed-nonce CTR statistically
+// Description: Treat the collection of ciphertexts the same way you would repeating-key XOR.
+func Exercise20() {
+	file, _ := os.Open("Set3_20.txt")
+	smallestCipherTextLength := 100000000
+	plainTexts := make([][]byte, 0)
+	cipherTexts := make([][]byte, 0)
+	concatCipherTexts := make([]byte, 0)
+	ctrMode := NewCTR(nil, nil, nil)
+	fileIn := bufio.NewScanner(file)
+	for fileIn.Scan() {
+		decoded, _ := base64.StdEncoding.DecodeString(fileIn.Text())
+		plainTexts = append(plainTexts, decoded)
+		cipherTexts = append(cipherTexts, ctrMode.Encrypt(decoded))
+		if len(cipherTexts[len(cipherTexts)-1]) < smallestCipherTextLength {
+			smallestCipherTextLength = len(cipherTexts[len(cipherTexts)-1])
+		}
+	}
+	for _, t := range cipherTexts {
+		concatCipherTexts = append(concatCipherTexts, t[:smallestCipherTextLength]...)
+	}
+	file.Close()
+	_, key, _ := BreakRepeatingXOR(concatCipherTexts, smallestCipherTextLength, true)
 	fmt.Println(bytes.Equal(key[:ctrMode.block.BlockSize()], ctrMode.keystream(make([]byte, ctrMode.block.BlockSize()))))
 }

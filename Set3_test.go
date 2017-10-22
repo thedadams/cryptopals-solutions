@@ -14,3 +14,8 @@ func ExampleExercise19() {
 	Exercise19()
 	// Output: true
 }
+
+func ExampleExercise20() {
+	Exercise20()
+	// Output: true
+}
