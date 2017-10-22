@@ -27,11 +27,15 @@ type CTR struct {
 	counter []byte
 	nonce   []byte
 	block   cipher.Block
+	key     []byte
 	iv      []byte
 }
 
 // NewCTR is a helper function from creating CTR mode decrypter and encrypter.
 func NewCTR(nonce, counter, key []byte) CTR {
+	if key == nil {
+		key = RandomBytes(aes.BlockSize)
+	}
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		panic(err)
@@ -42,7 +46,7 @@ func NewCTR(nonce, counter, key []byte) CTR {
 	if counter == nil {
 		counter = make([]byte, block.BlockSize()/2)
 	}
-	return CTR{counter: counter, nonce: nonce, iv: make([]byte, block.BlockSize()), block: block}
+	return CTR{counter: counter, nonce: nonce, iv: make([]byte, block.BlockSize()), key: key, block: block}
 }
 
 // keystream generates the next block of keystream.

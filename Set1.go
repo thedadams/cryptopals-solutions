@@ -24,9 +24,9 @@ func Exercise2() string {
 // Exercise3 performs the corresponding exercise from cryptopals.
 // Title: Single-byte XOR cipher
 // Description: The string has been XOR-ed against a single character. Find the key, decrypt the message.
-func Exercise3() (decrypted []byte, score int, key []byte) {
+func Exercise3() (decrypted []byte, score float64, key []byte) {
 	toDecrypt, _ := hex.DecodeString("1b37373331363f78151b7f2b783431333d78397828372d363c78373e783a393b3736")
-	decrypted, score, key = DecryptSingleCharXOR(toDecrypt)
+	decrypted, score, key = DecryptSingleCharXOR(toDecrypt, false)
 	return decrypted, score, key
 }
 
@@ -51,7 +51,7 @@ func Exercise5() string {
 func Exercise6() string {
 	fileText, _ := ioutil.ReadFile("Set1_6.txt")
 	fileTextAsBytes, _ := base64.StdEncoding.DecodeString(string(fileText))
-	_, key, _ := BreakRepeatingXOR(fileTextAsBytes)
+	_, key, _ := BreakRepeatingXOR(fileTextAsBytes, GuessKeySize(fileTextAsBytes), false)
 	return string(key)
 }
 

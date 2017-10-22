@@ -96,11 +96,24 @@ func XORTwoByteStringsInPlace(s1, s2 []byte) {
 }
 
 func isEnglishChar(a byte) bool {
-	return !(a != 32 && (a < 65 || a > 122))
+	return a == 32 || (a >= 65 && a <= 90) || (a >= 97 && a <= 122)
 }
 
-func countEnglishChars(decrypted []byte) int {
-	count := 0
+func lowerCaseLetterRatio(plainText []byte) float64 {
+	totalEnglishLetters, lowerCaseLetters := 0.0, 0.0
+	for _, b := range plainText {
+		if isEnglishChar(b) {
+			if bytes.Equal(bytes.ToLower([]byte{b}), []byte{b}) {
+				lowerCaseLetters++
+			}
+			totalEnglishLetters++
+		}
+	}
+	return lowerCaseLetters / totalEnglishLetters
+}
+
+func countEnglishChars(decrypted []byte) float64 {
+	count := 0.0
 	for i := 0; i < len(decrypted); i++ {
 		if isEnglishChar(decrypted[i]) {
 			count++
@@ -109,20 +122,56 @@ func countEnglishChars(decrypted []byte) int {
 	return count
 }
 
+func frequencyScore(decrypted []byte) float64 {
+	ranks := []byte(" etaoinshrdlcumwfgypbvk")
+	frequencies := make(map[byte]int)
+	maxFreq := 0
+	score := 0.0
+	for _, b := range decrypted {
+		b = bytes.ToLower([]byte{b})[0]
+		if _, ok := frequencies[b]; !ok {
+			frequencies[b] = 0
+		}
+		frequencies[b]++
+		if maxFreq < frequencies[b] {
+			maxFreq = frequencies[b]
+		}
+	}
+	freqArray := make([][]byte, maxFreq+1)
+	for i := 0; i < maxFreq+1; i++ {
+		freqArray[i] = make([]byte, 0)
+	}
+	for key, val := range frequencies {
+		freqArray[val] = append(freqArray[val], key)
+	}
+	rank := 0.0
+	for i := maxFreq; i >= 0; i-- {
+		rank = (1.0 + float64(len(freqArray[i]))) / float64(len(freqArray))
+		for _, b := range freqArray[i] {
+			if bytes.Index(ranks, []byte{b}) != -1 {
+				score += math.Abs(rank - float64(bytes.Index(ranks, []byte{b})))
+			} else {
+				score += 255
+			}
+		}
+	}
+	return 1 / (score + 1)
+}
+
 // DecryptSingleCharXOR finds a single character key for the cipherText
 // and decrypts the cipherText.
-func DecryptSingleCharXOR(cipherText []byte) (plainText []byte, score int, key []byte) {
-	maxScore, thisScore := -1, -1
+func DecryptSingleCharXOR(cipherText []byte, mostlyUpperCase bool) (plainText []byte, score float64, key []byte) {
+	maxScore, thisScore := -1.0, -1.0
 	// The guess we use for the key,
-	keyGuess := []byte(" ")
+	keyGuess := []byte{0}
 	// The best key to this point
-	key = []byte(" ")
+	key = []byte{byte(0)}
 	plainText = make([]byte, len(cipherText))
-	for keyGuess[0] <= []byte("~")[0] {
+	for keyGuess[0] < 255 {
 		// XOR the cipherText with the keyGuess.
 		dest := XORTwoByteStrings(cipherText, bytes.Repeat(keyGuess, len(cipherText)))
 		// Score this guess.
-		thisScore = countEnglishChars(dest)
+		thisScore = countEnglishChars(dest)/float64(len(dest)) + frequencyScore(dest)
 		// If this is our best score to this point, we update.
 		if thisScore > maxScore {
 			maxScore = thisScore
@@ -131,13 +180,16 @@ func DecryptSingleCharXOR(cipherText []byte) (plainText []byte, score int, key [
 		}
 		keyGuess[0]++
 	}
+	if mostlyUpperCase && lowerCaseLetterRatio(XORTwoByteStrings(cipherText, bytes.Repeat(key, len(cipherText)))) > lowerCaseLetterRatio(XORTwoByteStrings(cipherText, bytes.Repeat([]byte{key[0] + 32}, len(cipherText)))) {
+		key[0] += 32
+	}
 	return plainText, maxScore, key
 }
 
 // FindStringThatHasBeenEncrypted searches a file called filename for the string that has been
 // encrypted using a single character encryption method.
 func FindStringThatHasBeenEncrypted(filename string) (plaintext []byte, cipherText []byte) {
-	maxScore := -1
+	maxScore := -1.0
 	// Open the file
 	file, err := os.Open(filename)
 	defer file.Close()
@@ -149,7 +201,7 @@ func FindStringThatHasBeenEncrypted(filename string) (plaintext []byte, cipherTe
 	for scanner.Scan() {
 		line, _ := hex.DecodeString(scanner.Text())
 		// For each line, we try to decrypt with single char xor.
-		decryptedLine, thisScore, _ := DecryptSingleCharXOR(line)
+		decryptedLine, thisScore, _ := DecryptSingleCharXOR(line, false)
 		// If this line's score is the best we've seen so far, we update.
 		if thisScore > maxScore {
 			maxScore = thisScore
@@ -243,9 +295,7 @@ func GuessKeySize(text []byte) (keySize int) {
 }
 
 // BreakRepeatingXOR finds the key for and decrypts cipher text.
-func BreakRepeatingXOR(cipherText []byte) (plainText []byte, key []byte, keyLength int) {
-	// First, guess the keySize.
-	keySize := GuessKeySize(cipherText)
+func BreakRepeatingXOR(cipherText []byte, keySize int, firstLetterOfBlockCapitalized bool) (plainText []byte, key []byte, keyLength int) {
 	// transposedText is an array where each row contains letters that would be XOR-ed the same character of the key.
 	transposedText := make([][]byte, keySize)
 	key = make([]byte, 0)
@@ -260,7 +310,7 @@ func BreakRepeatingXOR(cipherText []byte) (plainText []byte, key []byte, keyLeng
 	// Now we have the transposedData
 	for i := 0; i < len(transposedText); i++ {
 		// Now we can decrypt each row of transposedText using our single char decryption.
-		_, _, singleCharOfKey := DecryptSingleCharXOR(transposedText[i])
+		_, _, singleCharOfKey := DecryptSingleCharXOR(transposedText[i], i == 0 && firstLetterOfBlockCapitalized)
 		key = append(key, singleCharOfKey...)
 	}
 	// Decrypt the cipherText

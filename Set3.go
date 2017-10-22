@@ -1,10 +1,12 @@
 package cryptopals
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/aes"
 	"encoding/base64"
 	"fmt"
+	"os"
 )
 
 // Exercise17 performs the corresponding exercise from cryptopals.
@@ -72,4 +74,25 @@ func Exercise18() {
 	cipherText, _ := base64.StdEncoding.DecodeString("L77na/nrFsKvynd6HzOoG7GHTLXsTVu9qvY/2syLXzhPweyyMTJULu/6/kXX0KSvoOLSFQ==")
 	c := NewCTR(nil, nil, []byte("YELLOW SUBMARINE"))
 	fmt.Println(string(c.Decrypt(cipherText)))
+}
+
+// Exercise19 performs the corresponding exercise from cryptopals.
+// Title: Break fixed-nonce CTR mode using substitutions.
+// Description: Attack this cryptosystem piecemeal: guess letters, use expected English language frequency to validate guesses, catch common English trigrams, and so on.
+func Exercise19() {
+	file, _ := os.Open("Set3_19.txt")
+	plainTexts := make([][]byte, 0)
+	cipherTexts := make([][]byte, 0)
+	firstBlocksOfCipherText := make([]byte, 0)
+	ctrMode := NewCTR(nil, nil, nil)
+	fileIn := bufio.NewScanner(file)
+	for fileIn.Scan() {
+		decoded, _ := base64.StdEncoding.DecodeString(fileIn.Text())
+		plainTexts = append(plainTexts, decoded)
+		cipherTexts = append(cipherTexts, ctrMode.Encrypt(decoded))
+		firstBlocksOfCipherText = append(firstBlocksOfCipherText, cipherTexts[len(cipherTexts)-1][:ctrMode.block.BlockSize()]...)
+	}
+	file.Close()
+	_, key, _ := BreakRepeatingXOR(firstBlocksOfCipherText, 16, true)
+	fmt.Println(bytes.Equal(key[:ctrMode.block.BlockSize()], ctrMode.keystream(make([]byte, ctrMode.block.BlockSize()))))
 }
