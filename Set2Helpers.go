@@ -4,75 +4,54 @@ import (
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
-	cRand "crypto/rand"
 	"fmt"
 	"math/rand"
 	"strings"
-	"time"
 )
 
-// PaddingError is a type used to indicate that there is a padding error with a plain text
-type PaddingError []byte
-
-func (f PaddingError) Error() string {
-	return fmt.Sprintf("math: square root of negative number %v", []byte(f))
-}
-
-// AESCBC is used to encrypt and decrypt using CBC mode.
-type AESCBC struct {
+// aescbc is used to encrypt and decrypt using CBC mode.
+type aescbc struct {
 	block cipher.Block
 	key   []byte
 	iv    []byte
 }
 
-// NewAESCBC takes a Key and IV and creates a new AESCBC.
-func NewAESCBC(key, iv []byte) AESCBC {
+// newAESCBC takes a Key and IV and creates a new aescbc.
+func newAESCBC(key, iv []byte) (aescbc, error) {
 	// If the key is nil, we create a random one.
 	if key == nil {
-		key = RandomBytes(aes.BlockSize)
+		key = randomBytes(aes.BlockSize)
 	}
 	// If the IV is nil, then we create a random one.
 	if iv == nil {
-		iv = RandomBytes(len(key))
+		iv = randomBytes(len(key))
 	}
 	block, err := aes.NewCipher(key)
 	if err != nil {
-		panic(err)
+		return aescbc{}, err
 	}
-	return AESCBC{block: block, key: key, iv: iv}
+	return aescbc{block: block, key: key, iv: iv}, nil
 }
 
-// PadToMultipleNBytes pads the bytes to the nearest multiple of N.
-func PadToMultipleNBytes(text []byte, N int) []byte {
-	// If the padding is already valid, then we shouldn't pad.
-	if _, err := isValidPadding(text, N); err == nil {
-		return text
-	}
-	BytesToAdd := N - (len(text) % N)
-	return append(text, bytes.Repeat([]byte{byte(BytesToAdd)}, BytesToAdd)...)
-}
-
-// Decrypt decrypts cipher text using CBC mode.
-func (c AESCBC) Decrypt(cipherText []byte) []byte {
+// decrypt decrypts cipher text using CBC mode.
+func (c aescbc) decrypt(cipherText []byte) ([]byte, error) {
 	// CBC mode always works in whole blocks.
 	if len(cipherText)%aes.BlockSize != 0 {
-		panic("ciphertext is not a multiple of the block size")
+		return nil, fmt.Errorf("ciphertext length %d is not a multiple of the block size %d", len(cipherText), aes.BlockSize)
 	}
 
 	decryptedText := make([]byte, len(cipherText))
-
 	mode := cipher.NewCBCDecrypter(c.block, c.iv)
-
 	for i := 0; i < len(cipherText)/aes.BlockSize; i++ {
 		mode.CryptBlocks(decryptedText[i*aes.BlockSize:(i+1)*aes.BlockSize], cipherText[i*aes.BlockSize:(i+1)*aes.BlockSize])
 	}
-	return decryptedText
+	return decryptedText, nil
 }
 
-// Encrypt encrypts the plainText using CBC mode.
-func (c AESCBC) Encrypt(plainText []byte) []byte {
+// encrypt encrypts the plainText using CBC mode.
+func (c aescbc) encrypt(plainText []byte) []byte {
 	// CBC mode always works in whole blocks.
-	plainText = PadToMultipleNBytes(plainText, len(c.key))
+	plainText = padToMultipleNBytes(plainText, len(c.key))
 	encryptedText := make([]byte, len(plainText))
 
 	mode := cipher.NewCBCEncrypter(c.block, c.iv)
@@ -84,73 +63,166 @@ func (c AESCBC) Encrypt(plainText []byte) []byte {
 	return encryptedText
 }
 
-// PrependAppendEncrypt prepends and appends strings and encrypts the data.
-// We cannot allow the user to include a semicolon nor an equal sign.
-func (c AESCBC) PrependAppendEncrypt(text []byte) []byte {
+// prependAppendEncrypt prepends and appends strings and encrypts the data.
+// We can't allow the user to include a semicolon nor an equal sign.
+func (c aescbc) prependAppendEncrypt(text []byte) []byte {
 	prepended := []byte("comment1=cooking%20MCs;userdata=")
 	appended := []byte(";comment2=%20like%20a%20pound%20of%20bacon")
 	// Get rid of = and ;
-	text = bytes.Replace(bytes.Replace(text, []byte("="), []byte(""), -1), []byte(";"), []byte(""), -1)
-	return c.Encrypt(append(append(prepended, text...), appended...))
+	text = bytes.ReplaceAll(bytes.ReplaceAll(text, []byte("="), []byte("")), []byte(";"), []byte(""))
+	return c.encrypt(append(append(prepended, text...), appended...))
 }
 
-// DecryptCheckAdmin uses an AESCBC to decrypt the cipher text and then checks for "admin=true;"
-func (c AESCBC) DecryptCheckAdmin(cipherText []byte) bool {
-	text := c.Decrypt(cipherText)
+// decryptCheckAdmin uses an aescbc to decrypt the cipher text and then checks for "admin=true;"
+func (c aescbc) decryptCheckAdmin(cipherText []byte) (bool, error) {
+	text, err := c.decrypt(cipherText)
+	if err != nil {
+		return false, err
+	}
+
+	// Split the text into tuples.
 	for _, val := range bytes.Split(text, []byte(";")) {
 		tuple := bytes.Split(val, []byte("="))
 		// If the tuple is of length 2, check if we have admin = true.
 		if len(tuple) == 2 && bytes.Equal(tuple[0], []byte("admin")) && bytes.Equal(tuple[1], []byte("true")) {
-			return true
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
 }
 
-// ECBEncryptionOracle is used exactly as described on the cryptopals website.
-type ECBEncryptionOracle struct {
-	ecb           AESECB
+// ecbEncryptionOracle is used exactly as described on the cryptopals website.
+type ecbEncryptionOracle struct {
+	ecb           aesecb
 	prepend       []byte
 	unknownString []byte
 }
 
-// NewECBEncryptionOracle creates a new oracle.
-func NewECBEncryptionOracle(prepend, unknownString []byte) ECBEncryptionOracle {
-	a := NewAESECB(nil)
+// newECBEncryptionOracle creates a new oracle.
+func newECBEncryptionOracle(prepend, unknownString []byte) ecbEncryptionOracle {
+	a, _ := newAESECB(nil)
 	if prepend == nil {
-		prepend = RandomBytes(rand.Intn(50) + 1)
+		prepend = randomBytes(rand.Intn(50) + 1)
 	}
-	return ECBEncryptionOracle{a, prepend, unknownString}
+	return ecbEncryptionOracle{a, prepend, unknownString}
 }
 
-// Encrypt uses the encryption oracle to encryption my string with the prepended string and unknown string.
-func (e ECBEncryptionOracle) Encrypt(myString []byte) []byte {
-	return e.ecb.Encrypt(append(e.prepend, append(myString, e.unknownString...)...))
+// encrypt uses the encryption oracle to encryption my string with the prepended string and unknown string.
+func (e ecbEncryptionOracle) encrypt(myString []byte) []byte {
+	return e.ecb.encrypt(append(e.prepend, append(myString, e.unknownString...)...))
 }
 
-// GuessBlockSizeOfCipher is an "add on" method that tries to guess the block size of the ECB Encryption Oracle.
-func (e ECBEncryptionOracle) GuessBlockSizeOfCipher() int {
+// guessBlockSizeOfCipher tries to guess the block size of the ECB Encryption Oracle.
+func guessBlockSizeOfCipher(e ecbEncryptionOracle) int {
 	identicalString := make([]byte, 1)
 	identicalString[0] = byte(1)
-	outputSize := len(e.Encrypt(identicalString))
-	for outputSize == len(e.Encrypt(identicalString)) {
+	outputSize := len(e.encrypt(identicalString))
+	for outputSize == len(e.encrypt(identicalString)) {
 		identicalString = append(identicalString, byte(1))
 	}
-	return len(e.Encrypt(identicalString)) - outputSize
+	return len(e.encrypt(identicalString)) - outputSize
 }
 
-// DetectLengthOfRandomBytes is an "add on" method that tries to guess the length of the random bytes prepended
+// decryptUnknownStringFromOracle will use the given EBC encryptor to decrypt the given ciphertext.
+func decryptUnknownStringFromOracle(e ecbEncryptionOracle) []byte {
+	blockSize := guessBlockSizeOfCipher(e)
+	lengthOfRandomPrepend := detectLengthOfRandomBytes(e, blockSize)
+	// We fill so that the prepended portion looks like it ends exactly at a block.
+	fillPrependToBlockSize := make([]byte, blockSize-(lengthOfRandomPrepend%blockSize))
+	numBlocksForPrepend := (lengthOfRandomPrepend / blockSize) + 1
+	numBlocksToFind := len(e.encrypt(fillPrependToBlockSize))/blockSize - numBlocksForPrepend
+
+	var (
+		blocksFound       int
+		knownPartOfString []byte
+	)
+	for blocksFound < numBlocksToFind {
+		// Following directions, we create a repeated string one smaller than the block size.
+		identicalString := bytes.Repeat([]byte{0}, blockSize-1)
+		// Now we find the byte that will take the empty spot in the repeated string.
+		// We build thisBlock byte by byte.
+		thisBlock := make([]byte, 0)
+		for j := 0; j < blockSize; j++ {
+			thisBlock = append(thisBlock, 0)
+			for i := 0; i < 256; i++ {
+				thisBlock[j] = byte(i)
+				thisTest := e.encrypt(append(append(append(append(fillPrependToBlockSize, identicalString...), knownPartOfString...), thisBlock...), identicalString[:blockSize-j-1]...))[numBlocksForPrepend*blockSize:]
+				// Test the appropriate encrypted blocks to see if they're the same.
+				// If they are, then we have the next byte.
+				if bytes.Equal(thisTest[:blockSize*(blocksFound+1)], thisTest[blockSize*(blocksFound+1):2*(blockSize*(blocksFound+1))]) {
+					// If we haven't completed this block, we append to thisBlock, shorten the identicalString
+					// and keep going.
+					if blockSize-j-2 > -1 {
+						identicalString = identicalString[:blockSize-j-2]
+					}
+					break
+				}
+			}
+		}
+		// At this point, we know the next block, so we add it to the end of the known part of the string.
+		knownPartOfString = append(knownPartOfString, thisBlock...)
+		blocksFound++
+	}
+
+	return bytes.Trim(knownPartOfString, string(nonEnglishChars()))
+}
+
+// profileAndEncrypt creates a profile for the given email and encrypts it.
+func (ecb aesecb) profileAndEncrypt(Email string) string {
+	return string(ecb.encrypt([]byte(profileFor(Email))))
+}
+
+// decryptAndParse decrypts a cookie and parses it.
+func (ecb aesecb) decryptAndParse(cipherText string) (map[string]string, error) {
+	output, err := ecb.decrypt([]byte(cipherText))
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt: %w", err)
+	}
+
+	parsed, err := parsedCookie(string(output))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse: %w", err)
+	}
+
+	return parsed, nil
+}
+
+// ecbOrCBCEncryption takes input, appends some random bytes at the beginning and end, and
+// encrypts using a random key with CBC half the time and ECB half the time.
+func ecbOrCBCEncryption(inputData []byte) ([]byte, int, error) {
+	key := randomBytes(aes.BlockSize)
+	// Append bytes to the beginning.
+	inputData = append(randomBytes(rand.Intn(6)+5), inputData...)
+	// Append bytes to the end.
+	inputData = append(inputData, randomBytes(rand.Intn(6)+5)...)
+	if rand.Intn(2) == 1 {
+		c, err := newAESCBC(key, nil)
+		if err != nil {
+			return nil, 0, err
+		}
+		return c.encrypt(inputData), 1, err
+	}
+
+	e, err := newAESECB(key)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return e.encrypt(inputData), 0, err
+}
+
+// detectLengthOfRandomBytes is an "add on" method that tries to guess the length of the random bytes prepended
 // by the encryption oracle.
-func (e ECBEncryptionOracle) DetectLengthOfRandomBytes(blockSize int) int {
-	// First we find the total padding for the entire string.
+func detectLengthOfRandomBytes(e ecbEncryptionOracle, blockSize int) int {
+	// First, we find the total padding for the entire string.
 	fillPrependToBlockSize := make([]byte, 0)
-	numBlocks := len(e.Encrypt(fillPrependToBlockSize))
-	for numBlocks == len(e.Encrypt(append(fillPrependToBlockSize, byte(0)))) {
-		fillPrependToBlockSize = append(fillPrependToBlockSize, byte(0))
+	numBlocks := len(e.encrypt(fillPrependToBlockSize))
+	for numBlocks == len(e.encrypt(append(fillPrependToBlockSize, 0))) {
+		fillPrependToBlockSize = append(fillPrependToBlockSize, 0)
 	}
 	totalExtraPadding := len(fillPrependToBlockSize)
 	fillPrependToBlockSize = append(fillPrependToBlockSize, make([]byte, 3*blockSize)...)
-	encryptedDataToFind := e.Encrypt(fillPrependToBlockSize)
+	encryptedDataToFind := e.encrypt(fillPrependToBlockSize)
 	// Now we know the total padding.
 	// Now we back off to find the padding at the end of the string.
 	i := 0
@@ -160,122 +232,66 @@ func (e ECBEncryptionOracle) DetectLengthOfRandomBytes(blockSize int) int {
 	}
 	for bytes.Equal(encryptedDataToFind[i*blockSize:(i+1)*blockSize], encryptedDataToFind[(i+1)*blockSize:(i+2)*blockSize]) {
 		fillPrependToBlockSize = fillPrependToBlockSize[:len(fillPrependToBlockSize)-1]
-		encryptedDataToFind = e.Encrypt(fillPrependToBlockSize)
+		encryptedDataToFind = e.encrypt(fillPrependToBlockSize)
 		j++
 	}
-	for bytes.Equal(encryptedDataToFind[(i-1)*blockSize:i*blockSize], encryptedDataToFind[i*blockSize:(i+1)*blockSize]) {
+
+	for i > 0 && bytes.Equal(encryptedDataToFind[(i-1)*blockSize:i*blockSize], encryptedDataToFind[i*blockSize:(i+1)*blockSize]) {
 		i--
 	}
 	// Now i contains the total blocks of padding,
 	// j is the size of the padding at the end of the string,
-	// and there is a error term at the end where the length of the random prepend and the padding
+	// and there is an error term at the end where the length of the random prepend and the padding
 	// at the end of the string could fall to mess things up by one block.
 	// The error term takes care of that.
 	return i*blockSize - totalExtraPadding + (j % blockSize) - blockSize*(1-j/blockSize)
 }
 
-// ProfileAndEncrypt creates a profile for the given email and encrypts it.
-func (e AESECB) ProfileAndEncrypt(Email string) string {
-	return string(e.Encrypt([]byte(ProfileFor(Email))))
-}
-
-// DecryptAndParse decrypts a cookie and parses it.
-func (e AESECB) DecryptAndParse(cipherText string) map[string]string {
-	return ParsedCookie(string(e.Decrypt([]byte(cipherText))))
-}
-
-// RandomBytes generates a random number of bytes.
-// Used for things like keys and ivs.
-func RandomBytes(numBytes int) []byte {
-	key := make([]byte, numBytes)
-	// Read random bytes into key.
-	n, err := cRand.Read(key)
-	if err != nil || n != numBytes {
-		fmt.Println("ERROR: could not generate random bytes.")
-		return nil
-	}
-	return key
-}
-
-// ECBOrCBCEncryption takes input, appends some random bytes at the beginning and end, and
-// encrypts using a random key with CBC half the time and ECB half the time.
-func ECBOrCBCEncryption(inputData []byte) ([]byte, int) {
-	rand.Seed(time.Now().UTC().UnixNano())
-	key := RandomBytes(aes.BlockSize)
-	// Append bytes to the beginning.
-	inputData = append(RandomBytes(rand.Intn(6)+5), inputData...)
-	// Append bytes to the end.
-	inputData = append(inputData, RandomBytes(rand.Intn(6)+5)...)
-	if rand.Intn(2) == 1 {
-		c := NewAESCBC(key, nil)
-		return c.Encrypt(inputData), 1
-	}
-	e := NewAESECB(key)
-	return e.Encrypt(inputData), 0
-}
-
-// DetectRandomEBCCBCMode passes some carefully chosen input to ECBOrCBCEncryption and guess which mode was
-// used to encrypt the data.
-func DetectRandomEBCCBCMode() bool {
-	blockMatches := 0
-	// We create 5 blocks of repeated bytes.
-	cipherText, mode := ECBOrCBCEncryption(bytes.Repeat([]byte{byte(rand.Intn(aes.BlockSize))}, aes.BlockSize*5))
-	// Now we look to see if those blocks are repeated in the cipher text.
+// detectRandomEBCCBCMode will detect whether the cipher text was encrypted with EBC or CBC mode.
+func detectRandomEBCCBCMode(cipherText []byte) int {
 	for i := 0; i < len(cipherText)/aes.BlockSize-1; i++ {
-		if bytes.Compare(cipherText[aes.BlockSize*i:aes.BlockSize*(i+1)], cipherText[aes.BlockSize*(i+1):aes.BlockSize*(i+2)]) == 0 {
-			blockMatches++
+		if bytes.Equal(cipherText[aes.BlockSize*i:aes.BlockSize*(i+1)], cipherText[aes.BlockSize*(i+1):aes.BlockSize*(i+2)]) {
+			// A block matches, so probably EBC mode.
+			return 0
 		}
 	}
-	// If we see the repeated blocks in the cipher text, then we are using ECB mode.
-	if blockMatches > 0 {
-		return mode == 0
-	}
-	return mode == 1
+
+	// None of the blocks match, so probably CBC mode.
+	return 1
 }
 
-/*ParsedCookie takes a string of the form foo=bar&baz=qux&zap=sizzle and produces
-{
-	foo: 'bar',
-	baz: 'qux',
-	zap: 'sizzle'
-  }
+/*
+parsedCookie takes a string of the form foo=bar&baz=qux&zap=sizzle and produces
+
+	{
+		foo: 'bar',
+		baz: 'qux',
+		zap: 'sizzle'
+	  }
 */
-func ParsedCookie(cookie string) map[string]string {
+func parsedCookie(cookie string) (map[string]string, error) {
+	if cookie == "" {
+		return nil, nil
+	}
+
 	tokens := strings.Split(cookie, "&")
-	parsedCookie := make(map[string]string)
+	parsedCookie := make(map[string]string, len(tokens))
 	for _, val := range tokens {
-		item := strings.Split(val, "=")
-		if len(item) != 2 {
-			fmt.Println("ERROR: Invalid Cookie")
+		key, val, ok := strings.Cut(val, "=")
+		if !ok {
+			return nil, fmt.Errorf("invalid cookie: %s", cookie)
 		} else {
-			parsedCookie[item[0]] = item[1]
+			parsedCookie[key] = val
 		}
 	}
-	return parsedCookie
+	return parsedCookie, nil
 }
 
-// ProfileFor takes an email and creates a profile cookie, originally for exercise 13
-func ProfileFor(Email string) string {
-	Email = strings.Replace(Email, "&", "", -1)
-	Email = strings.Replace(Email, "=", "", -1)
-	return "email=" + Email + "&uid=10&role=user"
-}
-
-// isValidPadding verifies that the text has the proper padding, strips it, and returns the text.
-// If we encounter an error, then we return a PaddingError
-// Otherwise, the error is nil.
-func isValidPadding(text []byte, blockSize int) ([]byte, PaddingError) {
-	paddedByte := text[len(text)-1]
-	// If the last byte is 0 or greater than the block length, then we know the padding is invalid.
-	if paddedByte > byte(blockSize) || paddedByte <= 0 {
-		return text, PaddingError(text)
-	}
-	for i := len(text) - 1; i > len(text)-1-int(paddedByte); i-- {
-		if text[i] != paddedByte {
-			return text, PaddingError(text)
-		}
-	}
-	return text[:len(text)-int(paddedByte)], nil
+// profileFor takes an email and creates a profile cookie, originally for exercise 13
+func profileFor(email string) string {
+	email = strings.ReplaceAll(email, "&", "")
+	email = strings.ReplaceAll(email, "=", "")
+	return "email=" + email + "&uid=10&role=user"
 }
 
 func nonEnglishChars() []byte {

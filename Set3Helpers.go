@@ -1,29 +1,68 @@
 package cryptopals
 
 import (
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
-	"encoding/base64"
-	"math/rand"
 )
 
-// PaddingOracleEncrypt encrypts one of 10 strings chosen at random and provides the
-// cipher text and IV to the attacker.
-func (c AESCBC) PaddingOracleEncrypt() ([]byte, []byte) {
-	randomStrings := []string{"MDAwMDAwTm93IHRoYXQgdGhlIHBhcnR5IGlzIGp1bXBpbmc=", "MDAwMDAxV2l0aCB0aGUgYmFzcyBraWNrZWQgaW4gYW5kIHRoZSBWZWdhJ3MgYXJlIHB1bXBpbic=", "MDAwMDAyUXVpY2sgdG8gdGhlIHBvaW50LCB0byB0aGUgcG9pbnQsIG5vIGZha2luZw==", "MDAwMDAzQ29va2luZyBNQydzIGxpa2UgYSBwb3VuZCBvZiBiYWNvbg==", "MDAwMDA0QnVybmluZyAnZW0sIGlmIHlvdSBhaW4ndCBxdWljayBhbmQgbmltYmxl", "MDAwMDA1SSBnbyBjcmF6eSB3aGVuIEkgaGVhciBhIGN5bWJhbA==", "MDAwMDA2QW5kIGEgaGlnaCBoYXQgd2l0aCBhIHNvdXBlZCB1cCB0ZW1wbw==", "MDAwMDA3SSdtIG9uIGEgcm9sbCwgaXQncyB0aW1lIHRvIGdvIHNvbG8=", "MDAwMDA4b2xsaW4nIGluIG15IGZpdmUgcG9pbnQgb2g=", "MDAwMDA5aXRoIG15IHJhZy10b3AgZG93biBzbyBteSBoYWlyIGNhbiBibG93"}
-	s, _ := base64.StdEncoding.DecodeString(randomStrings[rand.Intn(10)])
-	return c.Encrypt([]byte(s)), c.iv
+func decryptCBCPaddingOracle(cipherText, iv []byte, decryptAndCheckPadding func([]byte) bool) []byte {
+	var (
+		plainText          []byte
+		cipherTextToChange []byte
+	)
+	for len(cipherText) > 0 {
+		thisBlock := make([]byte, aes.BlockSize)
+		for i := 1; i <= len(thisBlock); i++ {
+			// XOR with the appropriate padding bytes.
+			xorTwoByteStringsInPlace(thisBlock[len(thisBlock)-i:], bytes.Repeat([]byte{byte(i)}, i))
+			// If we're decrypting the last block, then we need to change the IV.
+			if len(cipherText) <= aes.BlockSize {
+				cipherTextToChange = iv[:]
+			} else {
+				// Otherwise, we get the appropriate chunk of cipher text.
+				cipherTextToChange = cipherText[len(cipherText)-2*aes.BlockSize : len(cipherText)-aes.BlockSize]
+			}
+			for j := 255; j >= 0; j-- {
+				// Check this byte.
+				thisBlock[len(thisBlock)-i] ^= byte(j)
+				// XOR, check padding, and XOR back.
+				xorTwoByteStringsInPlace(cipherTextToChange, thisBlock)
+				validPadding := decryptAndCheckPadding(cipherText)
+				xorTwoByteStringsInPlace(cipherTextToChange, thisBlock)
+				// If we have the right padding, then we have the right byte.
+				if validPadding {
+					break
+				}
+				// Undo the XOR to try another.
+				thisBlock[len(thisBlock)-i] ^= byte(j)
+			}
+			// Undo the XOR padding because we are done with this byte.
+			xorTwoByteStringsInPlace(thisBlock[len(thisBlock)-i:], bytes.Repeat([]byte{byte(i)}, i))
+		}
+		// We're done with this check of cipher text so we append the plain text to it.
+		// We're doing this from last chunk to first, so we append backwards.
+		plainText = append(thisBlock, plainText...)
+		// Shorten the cipher text so we can check padding easily.
+		cipherText = cipherText[:len(cipherText)-aes.BlockSize]
+	}
 
+	return removePadding(plainText)
 }
 
-// DecryptAndCheckPadding decrypts and consumes the cipher text and returns whether the padding is valid.
-func (c AESCBC) DecryptAndCheckPadding(cipherText []byte) bool {
-	_, err := isValidPadding(c.Decrypt(cipherText), c.block.BlockSize())
+// decryptAndCheckPadding decrypts and consumes the cipher text and returns whether the padding is valid.
+func (c aescbc) decryptAndCheckPadding(cipherText []byte) bool {
+	decryptedText, err := c.decrypt(cipherText)
+	if err != nil {
+		return false
+	}
+
+	_, err = isValidPadding(decryptedText, c.block.BlockSize())
 	return err == nil
 }
 
-// CTR implements CTR stream cipher mode.
-type CTR struct {
+// ctr implements ctr stream cipher mode.
+type ctr struct {
 	counter []byte
 	nonce   []byte
 	block   cipher.Block
@@ -31,10 +70,10 @@ type CTR struct {
 	iv      []byte
 }
 
-// NewCTR is a helper function from creating CTR mode decrypter and encrypter.
-func NewCTR(nonce, counter, key []byte) CTR {
+// newCTR is a helper function from creating ctr mode decrypter and encrypter.
+func newCTR(nonce, counter, key []byte) ctr {
 	if key == nil {
-		key = RandomBytes(aes.BlockSize)
+		key = randomBytes(aes.BlockSize)
 	}
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -46,19 +85,19 @@ func NewCTR(nonce, counter, key []byte) CTR {
 	if counter == nil {
 		counter = make([]byte, block.BlockSize()/2)
 	}
-	return CTR{counter: counter, nonce: nonce, iv: make([]byte, block.BlockSize()), key: key, block: block}
+	return ctr{counter: counter, nonce: nonce, iv: make([]byte, block.BlockSize()), key: key, block: block}
 }
 
 // keystream generates the next block of keystream.
-func (c CTR) keystream(nonceCounter []byte) []byte {
+func (c ctr) keystream(nonceCounter []byte) []byte {
 	mode := cipher.NewCBCEncrypter(c.block, c.iv)
 	keystream := make([]byte, c.block.BlockSize())
 	mode.CryptBlocks(keystream, nonceCounter)
 	return keystream
 }
 
-// Encrypt encrypts using stream cipher mode.
-func (c CTR) Encrypt(plainText []byte) []byte {
+// encrypt encrypts using stream cipher mode.
+func (c ctr) encrypt(plainText []byte) []byte {
 	counter := make([]byte, len(c.counter))
 	copy(counter, c.counter)
 	cipherText := make([]byte, 0)
@@ -67,14 +106,25 @@ func (c CTR) Encrypt(plainText []byte) []byte {
 		// Get the next keystream.
 		keystream := c.keystream(append(c.nonce, counter...))
 		// XOR and append to the ciphertext
-		cipherText = append(cipherText, XORTwoByteStrings(keystream, plainText[numBlocks*c.block.BlockSize():])...)
+		cipherText = append(cipherText, xorTwoByteStrings(keystream, plainText[numBlocks*c.block.BlockSize():])...)
 		counter[0]++
 		numBlocks++
 	}
 	return cipherText
 }
 
-// Decrypt decrypts using stream cipher mode.
-func (c CTR) Decrypt(cipherText []byte) []byte {
-	return c.Encrypt(cipherText)
+// decrypt decrypts using stream cipher mode.
+func (c ctr) decrypt(cipherText []byte) []byte {
+	return c.encrypt(cipherText)
+}
+
+// xorTwoByteStringsInPlace does exactly as it sounds, but modifies the first argument.
+func xorTwoByteStringsInPlace(s1, s2 []byte) {
+	length := len(s1)
+	if length > len(s2) {
+		length = len(s2)
+	}
+	for i := 0; i < length; i++ {
+		s1[i] = s1[i] ^ s2[i]
+	}
 }

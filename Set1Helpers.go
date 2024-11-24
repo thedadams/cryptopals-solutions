@@ -5,52 +5,54 @@ import (
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math"
-	"os"
+	"strings"
 )
 
-// The AESECB type is used to encrypt and decrypt in ECB mode.
-type AESECB struct {
+// The aesecb type is used to encrypt and decrypt in ECB mode.
+type aesecb struct {
 	block cipher.Block
 	key   []byte
 	iv    []byte // We don't need the IV for ECB, but the Go implementation we are using requires one.
 }
 
-// NewAESECB is a helper to create a new AESECB type.
-func NewAESECB(key []byte) AESECB {
+// newAESECB is a helper to create a new aesecb type.
+func newAESECB(key []byte) (aesecb, error) {
 	if key == nil {
-		key = RandomBytes(aes.BlockSize)
+		key = randomBytes(aes.BlockSize)
 	}
 	block, err := aes.NewCipher(key)
 	if err != nil {
-		panic(err)
+		return aesecb{}, err
 	}
 	// Use a blank IV.
-	return AESECB{block: block, key: key, iv: make([]byte, aes.BlockSize)}
+	return aesecb{block: block, key: key, iv: make([]byte, aes.BlockSize)}, nil
 }
 
-// Decrypt decrypts text that was encrypted using ECB.
-func (ecb AESECB) Decrypt(cipherText []byte) []byte {
+// decrypt decrypts text that was encrypted using ECB.
+func (ecb aesecb) decrypt(cipherText []byte) ([]byte, error) {
 	// ECB mode always works in whole blocks.
 	if len(cipherText)%aes.BlockSize != 0 {
-		panic("ciphertext is not a multiple of the block size")
+		return nil, errors.New("cipher text is not a multiple of the block size")
 	}
 
 	decryptedText := make([]byte, len(cipherText))
 	for i := 0; i < len(cipherText)/aes.BlockSize; i++ {
-
 		mode := cipher.NewCBCDecrypter(ecb.block, ecb.iv)
 		mode.CryptBlocks(decryptedText[i*aes.BlockSize:(i+1)*aes.BlockSize], cipherText[i*aes.BlockSize:(i+1)*aes.BlockSize])
 	}
-	return decryptedText
+
+	return removePadding(decryptedText), nil
 }
 
-// Encrypt encrypts plain text using ECB mode.
-func (ecb AESECB) Encrypt(plainText []byte) []byte {
-	plainText = PadToMultipleNBytes(plainText, aes.BlockSize)
+// encrypt encrypts plain text using ECB mode.
+func (ecb aesecb) encrypt(plainText []byte) []byte {
+	plainText = padToMultipleNBytes(plainText, aes.BlockSize)
 	encryptedText := make([]byte, len(plainText))
 	for i := 0; i < len(plainText)/aes.BlockSize; i++ {
 		mode := cipher.NewCBCEncrypter(ecb.block, ecb.iv)
@@ -59,19 +61,18 @@ func (ecb AESECB) Encrypt(plainText []byte) []byte {
 	return encryptedText
 }
 
-// HexStringTo64String decodes a hex string and encodes it as base64.
-func HexStringTo64String(hexString string) string {
+// hexStringTo64String decodes a hex string and encodes it as base64.
+func hexStringTo64String(hexString string) (string, error) {
 	msg, err := hex.DecodeString(hexString)
 	if err != nil {
-		fmt.Println("error:", err)
-		return ""
+		return "", err
 	}
-	encoded := base64.StdEncoding.EncodeToString([]byte(msg))
-	return encoded
+
+	return base64.StdEncoding.EncodeToString(msg), nil
 }
 
-// XORTwoByteStrings does exactly as it sounds.
-func XORTwoByteStrings(s1, s2 []byte) []byte {
+// xorTwoByteStrings does exactly as it sounds.
+func xorTwoByteStrings(s1, s2 []byte) []byte {
 	length := len(s1)
 	if length > len(s2) {
 		length = len(s2)
@@ -83,16 +84,65 @@ func XORTwoByteStrings(s1, s2 []byte) []byte {
 	return dest
 }
 
-// XORTwoByteStringsInPlace does exactly as it sounds and puts the answer in the first argument.
-func XORTwoByteStringsInPlace(s1, s2 []byte) {
-	// If the byte strings are different lengths, we cannot XOR them.
-	if len(s1) != len(s2) {
-		fmt.Println("error: byte arrays must have the same length.", len(s1), "!=", len(s2))
-		return
+// padToMultipleNBytes pads the bytes to the nearest multiple of N.
+func padToMultipleNBytes(text []byte, N int) []byte {
+	// If the padding is already valid, then we shouldn't pad.
+	if _, err := isValidPadding(text, N); err == nil {
+		return text
 	}
-	for i := 0; i < len(s1); i++ {
-		s1[i] ^= s2[i]
+	bytesToAdd := N - (len(text) % N)
+	return append(text, bytes.Repeat([]byte{byte(bytesToAdd)}, bytesToAdd)...)
+}
+
+// removePadding will remove valid padding bytes
+func removePadding(text []byte) []byte {
+	paddedByte := text[len(text)-1]
+	for i := len(text) - 1; i > len(text)-1-int(paddedByte); i-- {
+		if text[i] != paddedByte {
+			return text[:len(text)-int(paddedByte)]
+		}
 	}
+	return text[:len(text)-int(paddedByte)]
+}
+
+// paddingError is a type used to indicate that there is a padding error with a plain text
+type paddingError []byte
+
+func (f paddingError) Error() string {
+	return fmt.Sprintf("math: square root of negative number %v", []byte(f))
+}
+
+// isValidPadding verifies that the text has the proper padding, strips it, and returns the text.
+// If we encounter an error, then we return a paddingError
+// Otherwise, the error is nil.
+func isValidPadding(text []byte, blockSize int) ([]byte, error) {
+	if len(text) == 0 {
+		return text, paddingError(text)
+	}
+	paddedByte := text[len(text)-1]
+	// If the last byte is 0 or greater than the block length, then we know the padding is invalid.
+	if paddedByte > byte(blockSize) || paddedByte <= 0 {
+		return text, paddingError(text)
+	}
+	for i := len(text) - 1; i > len(text)-1-int(paddedByte); i-- {
+		if text[i] != paddedByte {
+			return text, paddingError(text)
+		}
+	}
+	return text[:len(text)-int(paddedByte)], nil
+}
+
+// randomBytes generates a random number of bytes.
+// Used for things like keys and ivs.
+func randomBytes(numBytes int) []byte {
+	key := make([]byte, numBytes)
+	// Read random bytes into key.
+	n, err := rand.Read(key)
+	if err != nil || n != numBytes {
+		fmt.Println("ERROR: could not generate random bytes.")
+		return nil
+	}
+	return key
 }
 
 func isEnglishChar(a byte) bool {
@@ -148,7 +198,7 @@ func frequencyScore(decrypted []byte) float64 {
 	for i := maxFreq; i >= 0; i-- {
 		rank = (1.0 + float64(len(freqArray[i]))) / float64(len(freqArray))
 		for _, b := range freqArray[i] {
-			if bytes.Index(ranks, []byte{b}) != -1 {
+			if bytes.Contains(ranks, []byte{b}) {
 				score += math.Abs(rank - float64(bytes.Index(ranks, []byte{b})))
 			} else {
 				score += 255
@@ -158,18 +208,19 @@ func frequencyScore(decrypted []byte) float64 {
 	return 1 / (score + 1)
 }
 
-// DecryptSingleCharXOR finds a single character key for the cipherText
+// decryptSingleCharXOR finds a single character key for the cipherText
 // and decrypts the cipherText.
-func DecryptSingleCharXOR(cipherText []byte, mostlyUpperCase bool) (plainText []byte, score float64, key []byte) {
-	maxScore, thisScore := -1.0, -1.0
+func decryptSingleCharXOR(cipherText []byte, mostlyUpperCase bool) ([]byte, float64, []byte) {
+	maxScore := -1.0
 	// The guess we use for the key,
 	keyGuess := []byte{0}
 	// The best key to this point
-	key = []byte{byte(0)}
-	plainText = make([]byte, len(cipherText))
+	key := []byte{0}
+	plainText := make([]byte, len(cipherText))
+	var thisScore float64
 	for keyGuess[0] < 255 {
 		// XOR the cipherText with the keyGuess.
-		dest := XORTwoByteStrings(cipherText, bytes.Repeat(keyGuess, len(cipherText)))
+		dest := xorTwoByteStrings(cipherText, bytes.Repeat(keyGuess, len(cipherText)))
 		// Score this guess.
 		thisScore = countEnglishChars(dest)/float64(len(dest)) + frequencyScore(dest)
 		// If this is our best score to this point, we update.
@@ -180,43 +231,44 @@ func DecryptSingleCharXOR(cipherText []byte, mostlyUpperCase bool) (plainText []
 		}
 		keyGuess[0]++
 	}
-	if mostlyUpperCase && lowerCaseLetterRatio(XORTwoByteStrings(cipherText, bytes.Repeat(key, len(cipherText)))) > lowerCaseLetterRatio(XORTwoByteStrings(cipherText, bytes.Repeat([]byte{key[0] + 32}, len(cipherText)))) {
+	if mostlyUpperCase && lowerCaseLetterRatio(xorTwoByteStrings(cipherText, bytes.Repeat(key, len(cipherText)))) > lowerCaseLetterRatio(xorTwoByteStrings(cipherText, bytes.Repeat([]byte{key[0] + 32}, len(cipherText)))) {
 		key[0] += 32
 	}
 	return plainText, maxScore, key
 }
 
-// FindStringThatHasBeenEncrypted searches a file called filename for the string that has been
+// findStringThatHasBeenEncrypted searches a file called filename for the string that has been
 // encrypted using a single character encryption method.
-func FindStringThatHasBeenEncrypted(filename string) (plaintext []byte, cipherText []byte) {
-	maxScore := -1.0
-	// Open the file
-	file, err := os.Open(filename)
-	defer file.Close()
-	if err != nil {
-		fmt.Println("You don't have the proper file: " + filename)
-		return nil, nil
-	}
-	scanner := bufio.NewScanner(file)
+func findStringThatHasBeenEncrypted(input string) ([]byte, []byte) {
+	var (
+		plainText, cipherText []byte
+
+		maxScore = -1.0
+		scanner  = bufio.NewScanner(strings.NewReader(input))
+	)
+
 	for scanner.Scan() {
-		line, _ := hex.DecodeString(scanner.Text())
+		line, err := hex.DecodeString(scanner.Text())
+		if err != nil {
+			// If we can't decode the line, we skip it.
+			continue
+		}
+
 		// For each line, we try to decrypt with single char xor.
-		decryptedLine, thisScore, _ := DecryptSingleCharXOR(line, false)
+		decryptedLine, thisScore, _ := decryptSingleCharXOR(line, false)
 		// If this line's score is the best we've seen so far, we update.
 		if thisScore > maxScore {
 			maxScore = thisScore
-			plaintext = make([]byte, len(line))
-			cipherText = make([]byte, len(decryptedLine))
-			copy(plaintext, line)
-			copy(cipherText, decryptedLine)
+			plainText = decryptedLine
+			cipherText = line
 		}
 	}
-	// We can simply return because we named the return variables.
-	return
+
+	return plainText, cipherText
 }
 
-// RepeatedKeyXOR takes an arbitrary key and repeatedly XOR text with the key in blocks.
-func RepeatedKeyXOR(text, key []byte) []byte {
+// repeatedKeyXOR takes an arbitrary key and repeatedly XOR text with the key in blocks.
+func repeatedKeyXOR(text, key []byte) []byte {
 	keyLength := len(key)
 	byteDest := make([]byte, 0)
 	for len(text) > 0 {
@@ -226,7 +278,7 @@ func RepeatedKeyXOR(text, key []byte) []byte {
 			key = key[:keyLength]
 		}
 		// XOR this portion of the text.
-		byteDest = append(byteDest, XORTwoByteStrings(text[:keyLength], key)...)
+		byteDest = append(byteDest, xorTwoByteStrings(text[:keyLength], key)...)
 		// Shorten the text to remove the bytes that were XOR-ed.
 		text = text[keyLength:]
 	}
@@ -239,8 +291,8 @@ func hasBit(n byte, pos uint) bool {
 	return (val > 0)
 }
 
-// HammingDistance calculates the Hamming Distance between two []byte.
-func HammingDistance(word1, word2 []byte) int {
+// hammingDistance calculates the Hamming Distance between two []byte.
+func hammingDistance(word1, word2 []byte) int {
 	var j uint
 	dist := 0
 	// We need the length of the shorter of the two strings.
@@ -262,12 +314,13 @@ func HammingDistance(word1, word2 []byte) int {
 	return dist
 }
 
-// GuessKeySize guesses the repeated XOR key size using the Hamming Distance.
-func GuessKeySize(text []byte) (keySize int) {
+// guessKeySize guesses the repeated XOR key size using the Hamming Distance.
+func guessKeySize(text []byte) int {
+	var keySize int
 	// The maximum length of key we should consider.
 	maxGuess := 60
 	// If the length of the text is less than twice the length maximum key guess,
-	// then we double our mass guess.
+	// then we double our max guess.
 	if len(text) < 2*maxGuess {
 		maxGuess = len(text) / 2
 	}
@@ -279,26 +332,26 @@ func GuessKeySize(text []byte) (keySize int) {
 		// We loop over keyLength chunks of the text.
 		for (i+2)*k < len(text) {
 			// Find the Hamming Distance of two consecutive keyLength chunks of the text.
-			thisDist += float64(HammingDistance(text[i*k:(i+1)*k], text[(i+1)*k:(i+2)*k]))
+			thisDist += float64(hammingDistance(text[i*k:(i+1)*k], text[(i+1)*k:(i+2)*k]))
 			i++
 		}
 		// Average this distance per key length
-		thisDist /= (float64(k) * 8.0 * float64(i))
+		thisDist /= float64(k*i) * 8.0
 		// If this Hamming distance is less our minimum so far, we update.
 		if thisDist < minDist {
 			minDist = thisDist
 			keySize = k
 		}
 	}
-	// We can just return because we named our output value.
-	return
+
+	return keySize
 }
 
-// BreakRepeatingXOR finds the key for and decrypts cipher text.
-func BreakRepeatingXOR(cipherText []byte, keySize int, firstLetterOfBlockCapitalized bool) (plainText []byte, key []byte, keyLength int) {
+// breakRepeatingXOR finds the key for and decrypts cipher text.
+func breakRepeatingXOR(cipherText []byte, keySize int, firstLetterOfBlockCapitalized bool) ([]byte, []byte) {
 	// transposedText is an array where each row contains letters that would be XOR-ed the same character of the key.
 	transposedText := make([][]byte, keySize)
-	key = make([]byte, 0)
+	var key []byte
 	for i := 0; i < keySize; i++ {
 		transposedText[i] = make([]byte, 0)
 	}
@@ -310,33 +363,27 @@ func BreakRepeatingXOR(cipherText []byte, keySize int, firstLetterOfBlockCapital
 	// Now we have the transposedData
 	for i := 0; i < len(transposedText); i++ {
 		// Now we can decrypt each row of transposedText using our single char decryption.
-		_, _, singleCharOfKey := DecryptSingleCharXOR(transposedText[i], i == 0 && firstLetterOfBlockCapitalized)
+		_, _, singleCharOfKey := decryptSingleCharXOR(transposedText[i], i == 0 && firstLetterOfBlockCapitalized)
 		key = append(key, singleCharOfKey...)
 	}
-	// Decrypt the cipherText
-	plainText = RepeatedKeyXOR(cipherText, key)
-	keyLength = len(key)
-	// We can just return because we named our output values.
-	return
+	// decrypt the cipherText
+	return repeatedKeyXOR(cipherText, key), key
 }
 
-// DetectAESECB searches a file named filedname for the string that was encrypted with ECB mode.
-func DetectAESECB(filename string) string {
+// detectAESECB searches contents for a line encrypted with ECB mode.
+func detectAESECB(contents string) string {
 	blockLength := aes.BlockSize
 	minScore := 10000.0
 	var possibleLine []byte
-	// Open the file.
-	file, err := os.Open(filename)
-	if err != nil {
-		fmt.Println("You don't have the proper file: " + filename)
-		return ""
-	}
-	defer file.Close()
-	scanner := bufio.NewScanner(file)
-	// Each line of the code is encrypted, possibly in ECB mode.
+	scanner := bufio.NewScanner(strings.NewReader(contents))
 	for scanner.Scan() {
 		thisScore := 0.0
-		line, _ := hex.DecodeString(scanner.Text())
+		line, err := hex.DecodeString(scanner.Text())
+		if err != nil {
+			// Not valid hex, so can be ignored
+			continue
+		}
+
 		for i := 0; (i+1)*blockLength < len(line); i++ {
 			for j := i + 1; (i+j+1)*blockLength < len(line); j++ {
 				// The idea is that identical blocks are encrypted identically in ECB mode.
@@ -354,5 +401,6 @@ func DetectAESECB(filename string) string {
 			copy(possibleLine, line)
 		}
 	}
+
 	return hex.EncodeToString(possibleLine)
 }
